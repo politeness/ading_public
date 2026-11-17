@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "ADing";
+"NSLocalNetworkUsageDescription" = "Connect to the ADing development server on your local network";
+"NSCameraUsageDescription" = "Take photos to attach to your chat";

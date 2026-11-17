@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import {mkdtemp, rm, mkdir} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {LocalStore} from '../dist/store/local.js';
+import {ConversationScheduler} from '../dist/orchestration/conversation-scheduler.js';
+import {executeConversationControl} from '../dist/store/conversation-control.js';
+const dir=await mkdtemp(path.join(os.tmpdir(),'ading-conversation-concurrency-'));
+const store=new LocalStore(dir); await store.init();
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(predicate) {for(let i=0;i<400;i++){if(await predicate())return;await sleep(5);}throw Error('timeout');}
+const calls=[], active=new Map(), cancelled=[], steers=[], events=[];
+const ok=(message,threadId)=>({ok:true,message,threadId,steps:[],cancelled:false,metrics:{iterations:0,sideEffects:false}});
+let scheduler;
+try {
+ const discovered=[{kind:'codex',localUuid:'same-codex',executablePath:'/mock'},{kind:'claude-code',localUuid:'same-claude',executablePath:'/mock'}];
+ const [agent,worker]=await store.syncDiscoveredAgents(discovered);
+ const registry={runTurn:async(d,input)=>{
+   if(d.localUuid.includes("::inbox:"))return ok("SKIP");
+   assert.ok(!active.has(d.localUuid),'same task/Agent never overlaps');
+   calls.push({d,input});
+   if(input.prompt.includes('QUICK_HI'))return ok('Hi，已收到',`thread:${input.workspacePath}`);
+   return new Promise(resolve=>{
+     const finish=outcome=>{active.delete(d.localUuid);resolve(outcome);};
+     active.set(d.localUuid,{input,finish});
+     input.signal.addEventListener('abort',()=>finish({...ok('',undefined),ok:false,cancelled:true}),{once:true});
+   });
+ },steer:async(_kind,id,input)=>{steers.push({id,input});return {status:'accepted'};},cancel:(_kind,id)=>{cancelled.push(id);const turn=active.get(id);turn?.finish({...ok('',undefined),ok:false,cancelled:true});return !!turn;}};
+ scheduler=new ConversationScheduler({idleRetryLimit:0,store,registry,syncer:{ensureSynced:async()=>[]},resolveWorkspace:async conversation=>{const workspacePath=path.join(dir,conversation.conversationId);await mkdir(workspacePath,{recursive:true});return{workspacePath,sharesKnowledge:false};},resolveDiscovered:id=>discovered.find(d=>d.kind===(id===agent.userId?'codex':'claude-code')),isAgentReady:()=>true,broadcast:(channel,payload)=>events.push({channel,payload}),log:async()=>{}});
+ const old=await scheduler.createConversation({name:'旧任务',memberIds:[agent.userId],initialMessage:'OLD_ONLY_LONG_WORK'});
+ await until(()=>active.size===1);
+ const oldKey=[...active.keys()][0];
+ const quick=await scheduler.createConversation({name:'新任务',memberIds:[agent.userId],initialMessage:'QUICK_HI'});
+ await until(async()=>(await store.listMessages(quick.conversationId)).some(m=>m.content==='Hi，已收到'));
+ assert.ok(active.has(oldKey),'hi completes while the old task is still executing');
+ assert.ok(!calls[1].input.prompt.includes('OLD_ONLY_LONG_WORK'),'new task receives no old context');
+ assert.equal(calls[1].input.threadId,undefined);
+ assert.notEqual(calls[0].d.localUuid,calls[1].d.localUuid,'CLI process ownership differs');
+ assert.notEqual(calls[0].input.workspacePath,calls[1].input.workspacePath);
+ const other=await scheduler.createConversation({name:'另一任务',memberIds:[agent.userId],initialMessage:'OTHER_LONG_WORK'});
+ await until(()=>active.size===2);
+ assert.equal(scheduler.runtimeSnapshot().agents.filter(a=>a.agentUserId===agent.userId).length,2,'one Agent has two concurrent task states');
+ await scheduler.sendUserMessage({conversationId:old.conversationId,clientMessageId:'follow',content:'FOLLOW_SAME_TASK'});
+ assert.equal(calls.length,3,'same task input does not start another provider turn');
+ assert.equal(steers.length,1);assert.ok(steers[0].input.content.includes('FOLLOW_SAME_TASK'));
+ assert.equal(scheduler.runtimeSnapshot().queued.length,1,'accepted steering retains a follow-up until the new input is verified');
+ await executeConversationControl(scheduler,old.conversationId,'pause');
+ await until(()=>scheduler.runtimeSnapshot().agents.length===1);
+ assert.ok([...active.keys()].every(key=>key.includes(other.conversationId)),'stopping old leaves the other process running');
+ assert.ok(cancelled.every(key=>key.includes(old.conversationId)));
+ assert.equal(scheduler.runtimeSnapshot().queued.length,0,'stop leaves no duplicate follow-up after accepted steering');
+ assert.equal((await store.getConversation(old.conversationId)).paused,true,'stop survives restart');
+ const beforeCalls=calls.length;
+ const otherTurn=[...active.values()][0];otherTurn.finish(ok('other result','other-thread'));
+ await until(()=>scheduler.runtimeSnapshot().agents.length===0);
+ await sleep(30);assert.equal(calls.length,beforeCalls,'finishing another task cannot resurrect stopped work');
+ // Same-task steering stays inside the one active provider turn.
+ await scheduler.sendUserMessage({conversationId:other.conversationId,clientMessageId:'again',content:'OTHER_AGAIN'});
+ await until(()=>active.size===1);
+ assert.equal(calls.at(-1).input.threadId,'other-thread');
+ const cancelsBeforeDirection=cancelled.length;
+ await scheduler.sendUserMessage({conversationId:other.conversationId,clientMessageId:'ordered',content:'ORDERED_FOLLOW'});
+ assert.equal(calls.length,beforeCalls+1,'steering does not create a second top-level call');
+ assert.equal(cancelled.length,cancelsBeforeDirection,'same-conversation user input never kills the active provider request');
+ assert.ok(steers.at(-1).input.content.includes('ORDERED_FOLLOW'));
+ assert.ok(steers.at(-1).input.content.includes('原生子 Agent'));
+ assert.equal(calls.at(-1).input.threadId,'other-thread');
+ assert.equal(active.size,1);
+ // Two members of one group are cancelled together, without touching another task.
+ const group=await store.createConversation({name:'多人',memberIds:[agent.userId,worker.userId],leaderId:agent.userId});
+ await store.updateConversation(group.conversationId,{charter:{mode:'discussion'}});
+ await scheduler.sendUserMessage({conversationId:group.conversationId,clientMessageId:'group',content:'GROUP_LONG_WORK'});
+ await until(()=>active.size===3);
+ await scheduler.stopConversation(group.conversationId);
+ await until(()=>active.size===1 && scheduler.runtimeSnapshot().agents.length===1);
+ assert.ok([...active.keys()][0].includes(other.conversationId));
+ const persisted=JSON.stringify(await store.listConversations());
+ await scheduler.shutdown();await until(()=>scheduler.runtimeSnapshot().agents.length===0);
+ assert.equal(active.size,0);assert.equal(JSON.stringify(await store.listConversations()),persisted,'exit never writes task/member switches');
+ const versions=events.filter(e=>e.channel.startsWith('agent:')).map(e=>e.payload.revision);
+ assert.ok(versions.every((v,i)=>!i||v>versions[i-1]),'cross-conversation events share monotonic revisions');
+ assert.equal((await store.listMessages(old.conversationId)).filter(m=>!m.agentReply).some(m=>m.content==='FOLLOW_SAME_TASK'),true,'paused queued message remains saved');
+ console.log('conversation-concurrency: concurrent tasks, session/process isolation, native same-turn steering, all-member stop, cross-conversation stop isolation and shutdown passed');
+} finally {await scheduler?.shutdown();await store.close();await rm(dir,{recursive:true,force:true});}

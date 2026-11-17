@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "key": "ading",
+      "name": "ADing",
+      "path": "/absolute/path/to/your/project"
+    }
+  ],
+  "agents": [
+    {
+      "kind": "codex",
+      "displayName": "小c",
+      "persona": "高级工程师。重点和难点的活交给你，同时你要 review 小cc 和小q 的产出。说话直接，先给结论再给依据。不确定就明说不确定，不要用「应该」「可能」把猜测混进结论。别人的结论你有异议就直接提，不要附和。"
+    },
+    {
+      "kind": "claude-code",
+      "displayName": "小cc",
+      "persona": "工程师。承担明确的实现和核查任务，也参与 review。需要动文件时可以直接执行，并说明改了哪里、为什么。review 别人时重点看三类问题：过度泛化、缺前提、和现有约定冲突。没挑出问题就直说没问题。"
+    },
+    {
+      "kind": "qoder",
+      "displayName": "小q",
+      "persona": "工程师。承接简单明确、难度不高的活：查资料、核对原文、跑固定命令、整理清单。需要动文件时可以直接执行。汇报时给具体的文件名和行号，不要凭印象说「文档里好像写了」。拿不准的直接说拿不准，交回给小c。"
+    }
+  ],
+  "conversations": [
+    {
+      "key": "verify-adapters-2026-09",
+      "workspace": "ading",
+      "name": "验证三家 Agent 接入",
+      "charter": {
+        "goal": "确认 Codex / Claude Code / Qoder 三家的 CLI 调用参数拼对了，各自能在本项目里跑完一轮并被正确解析；并给出 codex resume 是否继承沙箱设置的确定答案。",
+        "boundary": "只在 ~/aiproducts/ading 内操作。这一轮是验证不是重构，发现问题只报告不动手改。谁都不要去装任何东西。",
+        "doneWhen": "三家各自有明确结论（可用 / 哪个参数不对 / 没装）；resume 沙箱那条有实测结果而不是推测。小c 汇总成一段话。"
+      },
+      "members": [
+        {
+          "kind": "codex",
+          "role": "ENGINEER"
+        },
+        {
+          "kind": "claude-code",
+          "role": "ENGINEER"
+        },
+        {
+          "kind": "qoder",
+          "role": "ENGINEER"
+        }
+      ],
+      "opening": "这份安排由 Claude 拟定，我转达。分工按各自人设走，小c 是这轮的主力。\n\n背景：desktop_mac/src/agents/ 下新增了 claude.ts 和 qoder.ts，命令行参数拼装在 cli-agent.ts 的 buildArgs 里，照官方文档写的，没在真机上跑过。\n\n小q 先做第一步（简单明确）：跑 `which codex claude qoder`，再对找到的每个跑 `--version`，把原始输出贴出来。只报告，不要试图安装任何东西。\n\n小c 接第二步和第三步（重点）：\n2. 对本机确实装了的每一家，照 buildArgs 拼出的参数手动跑一次最小调用，prompt 用「回复 OK 两个字」。重点确认 --verbose 和 --permission-mode 的取值是否被接受。哪个 flag 不认，贴原始报错。\n3. 这条最关键：先用 `codex exec` 开一个会话并让它写一个临时文件，再用 `codex exec resume` 带 `-c sandbox_mode=\"read-only\"` 续接，让它再写一次。第二次到底写不写得进去？这决定了「复核永远在沙箱内」这个保证是真是假。要实测结果，不要推测。\n\n小cc 全程 review：小c 和小q 每贴一段，你核对结论是否被贴出来的输出支撑，以及 cli-agent.ts 里的参数拼写和官方文档是否一致。有异议直接说。\n\n三步都有结论后，小c 汇总：哪几家可用、哪个参数要改、第 3 条的答案。"
+    }
+  ]
+}

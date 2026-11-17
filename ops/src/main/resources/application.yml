@@ -1,0 +1,81 @@
+server:
+  # Only for the same-host nginx reverse proxy; not in the security group, not open to the public internet
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8280}
+  servlet:
+    # nginx forwards https://www.coffeestudy.com.cn/ading/ops as-is;
+    # keeping the context path equal to the public prefix lets the page call the API with relative paths.
+    context-path: /ading/ops
+  tomcat:
+    threads:
+      max: 40
+
+spring:
+  application:
+    name: ading-ops
+  profiles:
+    # dev = NAS development database, prod = RDS business database on ECS (shared by pre-release and production)
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # The ops console is a single-user dashboard and doesn't need a connection pool the size of conductor's
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10000
+  jackson:
+    # Fields like phone, email and city must explicitly return null when empty,
+    # so the frontend can tell "no such data" from "the API dropped this field".
+    default-property-inclusion: always
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+ading:
+  ops:
+    # Ops account list: ADing usernames, comma-separated. Only accounts on the list can log in to the ops console.
+    # Changing the list takes effect after a service restart, the same way as conductor's ADING_REGION_EXEMPT_USERS.
+    users: ${ADING_OPS_USERS:}
+    # Signing secret for ops session tokens; must differ from conductor's ADING_AUTH_SECRET:
+    # with separate secrets, ADing client access tokens can never be used as ops sessions.
+    auth-secret: ${ADING_OPS_AUTH_SECRET:}
+    # Session lifetime 12 hours; log in again on expiry, no silent renewal
+    session-ttl-seconds: ${ADING_OPS_SESSION_TTL_SECONDS:43200}
+    cookie-name: ading_ops_session
+    # Turn off when testing locally over http, otherwise the browser won't send back the Secure cookie
+    cookie-secure: ${ADING_OPS_COOKIE_SECURE:true}
+    # Statistics day cuts, collection bucketing, scheduled cleanup, token expiry and the page's "today/yesterday" all use this time zone;
+    # it must match the conductor JVM's default time zone (connection times are written in the server's system default zone); don't change it without a specific reason
+    zone: ${ADING_OPS_ZONE:Asia/Shanghai}
+    # Service-to-service token used by conductor to submit issue reports and by the processing workflow to query and change status; same as conductor's config of the same name
+    ingest-token: ${ADING_OPS_INGEST_TOKEN:}
+    # Accounts excluded from statistics (e.g. app store review accounts), comma-separated usernames; if unset, none are excluded
+    excluded-users: ${ADING_OPS_EXCLUDED_USERS:}
+    # Attachment reading. The endpoint defaults per environment, see application-dev.yml / application-prod.yml
+    oss:
+      endpoint: ${ADING_OSS_ENDPOINT:}
+      bucket: ${ADING_OSS_BUCKET:}
+      access-key-id: ${OSS_ACCESS_KEY_ID:}
+      access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+    # Publicly reachable login endpoint, rate-limited per IP to fend off brute-force attempts
+    login-max-failures: 5
+    login-window-minutes: 10
+    login-block-minutes: 10
+    # Limit on concurrent password verifications and queue wait (ECS has 2 cores and shares the host with production conductor), see VerificationGate
+    login-max-concurrent-verifications: 1
+    login-verify-wait-millis: 3000
+
+logging:
+  level:
+    com.politeness.ading.ops: INFO
+
+# Health probes expose only health without details; through nginx only UP/DOWN is visible externally
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

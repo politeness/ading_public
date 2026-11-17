@@ -1,0 +1,124 @@
+server:
+  port: 8080
+  tomcat:
+    max-connections: 10000
+    threads:
+      max: 200
+    # Issue reports carry base64 of up to 5 images + 2 logs, which can total close to 25 MB.
+    # The defaults of these two settings cut the connection early on large request bodies, so they are relaxed here.
+    max-swallow-size: -1
+    max-http-form-post-size: -1
+
+spring:
+  application:
+    name: conductor
+  autoconfigure:
+    # mica-ip2region auto-configuration loads both the IPv4 and IPv6 address databases (about 48 MB total) into memory;
+    # terminal registration looks up the city from the request IP via IpCityResolver querying the file, so it is disabled here.
+    exclude: net.dreamlu.mica.ip2region.config.Ip2regionConfiguration
+  profiles:
+    # dev = NAS development environment, prod = ECS production environment, pre = pre-release environment on ECS.
+    # dev and prod differ in database and OSS endpoint; see application-dev.yml / application-prod.yml.
+    # On ECS, prod or pre must be specified explicitly, otherwise the dev environment's public addresses are used.
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # Pre-release and production share the ECS environment (RDS, OSS internal network) and differ only in service directory, service name and port,
+    # so pre takes all of prod's configuration and only overrides the port; see application-pre.yml.
+    group:
+      pre: prod
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 4
+      connection-timeout: 10000
+  jackson:
+    default-property-inclusion: non_null
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+ading:
+  mqtt:
+    # MQTT is the only terminal transport (push, reports, presence); pre/prod/dev deployments set this to true.
+    # Left false only for local runs without a broker: no realtime push, every terminal reports offline.
+    enabled: ${ADING_MQTT_ENABLED:false}
+    environment: ${ADING_MQTT_ENVIRONMENT:}
+    instance-id: ${ADING_MQTT_INSTANCE_ID:}
+    region-id: ${ADING_MQTT_REGION_ID:}
+    # Reuse the existing OSS credentials unless a dedicated MQTT key is configured.
+    access-key-id: ${ADING_MQTT_ACCESS_KEY_ID:${OSS_ACCESS_KEY_ID:}}
+    access-key-secret: ${ADING_MQTT_ACCESS_KEY_SECRET:${OSS_ACCESS_KEY_SECRET:}}
+    api-domain: ${ADING_MQTT_API_DOMAIN:}
+    broker-url: ${ADING_MQTT_BROKER_URL:}
+    public-broker-url: ${ADING_MQTT_PUBLIC_BROKER_URL:}
+    report-transport: ${ADING_MQTT_REPORT_TRANSPORT:cloud}
+    cloud-domain: ${ADING_MQTT_CLOUD_DOMAIN:}
+    cloud-port: ${ADING_MQTT_CLOUD_PORT:5672}
+    shared-subscription: ${ADING_MQTT_SHARED_SUBSCRIPTION:true}
+    token-ttl-seconds: 3600
+    keep-alive-seconds: 20
+  apns:
+    # Mobile push. If any of the three is empty, nothing is sent and the backend starts normally
+    key-id: ${ADING_APNS_KEY_ID:}
+    team-id: ${ADING_APNS_TEAM_ID:}
+    key-path: ${ADING_APNS_KEY_PATH:}
+    # Which APNs each message goes to is decided by the environment reported by the phone: dev builds use sandbox; TestFlight and App Store both use production
+    topic: ${ADING_APNS_TOPIC:com.politeness.ading}
+  auth:
+    # Every environment must be configured with its own random signing key.
+    secret: ${ADING_AUTH_SECRET:}
+    access-token-ttl-seconds: 7200
+    refresh-token-ttl-seconds: 2592000
+    node-token-ttl-seconds: 31536000
+  turn:
+    # Used by TurnService in phase 2; placeholder only in phase 1
+    max-concurrent: 50
+    round-budget: 8
+    deadline-ms: 600000
+  support:
+    enabled: ${ADING_SUPPORT_ENABLED:false}
+    # endpoint defaults by environment; see application-dev.yml / application-prod.yml.
+    oss-endpoint: ${ADING_OSS_ENDPOINT:}
+    oss-bucket: ${ADING_OSS_BUCKET:}
+    oss-access-key-id: ${OSS_ACCESS_KEY_ID:}
+    oss-access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+    oss-public-base-url: ${ADING_OSS_PUBLIC_BASE_URL:}
+    oss-key-prefix: ${ADING_OSS_KEY_PREFIX:bug_report}
+    link-ttl-hours: ${ADING_OSS_LINK_TTL_HOURS:168}
+    oss-communication-key-prefix: ${ADING_OSS_COMMUNICATION_KEY_PREFIX:communication}
+    # Issue reports and user contacts are reported to the ops console. The address defaults by environment; see application-dev.yml / application-prod.yml
+    ops-base-url: ${ADING_OPS_BASE_URL:}
+    # Same as the ops console's ADING_OPS_INGEST_TOKEN; kept only in the env file in the server deploy directory
+    ops-ingest-token: ${ADING_OPS_INGEST_TOKEN:}
+    # Issue reports include the backend's last 48 hours of logs (including the rolled files of the previous two days), reusing the service's existing log path
+    server-log-path: ${ADING_SERVER_LOG_PATH:${LOGGING_FILE_NAME:}}
+    # Fallback cap: when the last 48 hours of logs exceed this many bytes, keep only the newest part
+    server-log-tail-bytes: ${ADING_SERVER_LOG_TAIL_BYTES:10485760}
+  # Message attachments: OSS endpoint, bucket and account are shared with support above, unaffected by support.enabled
+  attachment:
+    oss-key-prefix: ${ADING_ATTACHMENT_KEY_PREFIX:attachments}
+    max-bytes: ${ADING_ATTACHMENT_MAX_BYTES:209715200}
+    max-per-message: 9
+    upload-ttl-minutes: 60
+    download-ttl-minutes: 60
+  # User skills and memory in the cloud: OSS endpoint, bucket and account are likewise shared with support
+  knowledge:
+    skill-key-prefix: ${ADING_KNOWLEDGE_SKILL_KEY_PREFIX:skill}
+    memory-key-prefix: ${ADING_KNOWLEDGE_MEMORY_KEY_PREFIX:memory}
+    lock-ttl-seconds: 300
+    lock-retry-seconds: 30
+
+logging:
+  level:
+    com.politeness.ading.conductor: INFO
+
+# Health check: only /actuator/health is exposed, without details; externally via Nginx only UP/DOWN is visible.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

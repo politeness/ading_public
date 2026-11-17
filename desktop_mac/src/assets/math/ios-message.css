@@ -1,0 +1,10 @@
+html,body {margin:0;padding:0;background:transparent;color:var(--foreground);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:var(--size,17px);line-height:1.4;overflow-x:hidden;-webkit-user-select:none;}
+#content {white-space:pre-wrap;overflow-wrap:anywhere;min-width:0;}
+a {color:var(--link);text-decoration:underline;}
+code {font-family:ui-monospace,monospace;font-size:0.9em;}
+pre {white-space:pre;overflow-x:auto;max-width:100%;}
+.message-math.math-display {display:block;max-width:100%;overflow-x:auto;overflow-y:hidden;margin:0.6em 0;white-space:normal;}
+.message-math .katex-display {margin:0;text-align:left;}
+.message-math.math-inline {white-space:nowrap;}
+.message-math.math-fallback {white-space:pre-wrap;overflow-wrap:anywhere;}
+.mention {color:var(--link);}.mention-self {color:var(--mention-self);}

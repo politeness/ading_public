@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for ading-computer, the native helper tool bundled with ADing.
+
+  It is a command-line program that doesn't run V8, so it doesn't need the main app's JIT exceptions; it needs only one:
+  "System permissions" under Settings → Permissions relies on it to query and request Automation permission (whether ADing may control a given app).
+  With Hardened Runtime enabled and without this entitlement, both the query and the request are rejected outright.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

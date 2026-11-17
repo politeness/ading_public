@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+<title>阿钉运维</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<div id="view-boot" class="boot">正在检查登录状态…</div>
+
+<div id="view-login" class="login" hidden>
+  <form class="login-card" id="login-form" novalidate>
+    <svg class="mark" viewBox="0 0 44 44" aria-hidden="true">
+      <rect width="44" height="44" rx="13" fill="var(--accent)"></rect>
+      <path d="M14 12h16v6h-5v14h-6V18h-5z" fill="#fff"></path>
+    </svg>
+    <h1>阿钉运维</h1>
+    <p class="login-sub">使用你的阿钉账号登录运维控制台</p>
+    <div class="form-error" id="login-error" role="alert" hidden></div>
+    <label class="field">
+      <span>用户名</span>
+      <input type="text" id="login-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+    </label>
+    <label class="field">
+      <span>密码</span>
+      <input type="password" id="login-password" name="password" autocomplete="current-password" required />
+    </label>
+    <button class="btn primary block" type="submit" id="login-submit">登录</button>
+    <p class="login-hint">仅运维账号可登录</p>
+  </form>
+</div>
+
+<div id="view-main" hidden>
+  <div class="app-head">
+    <div class="topbar">
+      <div class="topbar-left">
+        <svg class="mark" viewBox="0 0 44 44" aria-hidden="true">
+          <rect width="44" height="44" rx="13" fill="var(--accent)"></rect>
+          <path d="M14 12h16v6h-5v14h-6V18h-5z" fill="#fff"></path>
+        </svg>
+        <h1>阿钉运维</h1>
+      </div>
+      <div class="topbar-right">
+        <span class="whoami" id="whoami"></span>
+        <button class="btn" type="button" id="btn-refresh">刷新</button>
+        <button class="btn" type="button" id="btn-logout">退出登录</button>
+      </div>
+    </div>
+    <div class="tabs" role="tablist" aria-label="运维控制台">
+      <button class="tab" type="button" role="tab" id="tabbtn-overview" aria-controls="panel-overview" aria-selected="true" data-tab="overview">概览</button>
+      <button class="tab" type="button" role="tab" id="tabbtn-active" aria-controls="panel-active" aria-selected="false" data-tab="active">活跃</button>
+      <button class="tab" type="button" role="tab" id="tabbtn-feedback" aria-controls="panel-feedback" aria-selected="false" data-tab="feedback">问题反馈</button>
+      <button class="tab" type="button" role="tab" id="tabbtn-contacts" aria-controls="panel-contacts" aria-selected="false" data-tab="contacts">用户联系</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section class="panel" id="panel-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
+      <div class="out" id="out-overview" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-active" role="tabpanel" aria-labelledby="tabbtn-active" hidden>
+      <div class="toolbar">
+        <div class="seg" id="seg-dimension" role="group" aria-label="统计对象"></div>
+        <div class="seg" id="seg-granularity" role="group" aria-label="统计粒度"></div>
+        <span class="toolbar-label">天数</span>
+        <div class="seg" id="seg-days" role="group" aria-label="统计天数"></div>
+      </div>
+      <div class="out" id="active-state" aria-live="polite"></div>
+      <div id="active-body" hidden>
+        <div id="active-notice"></div>
+        <div class="cards" id="active-totals"></div>
+        <div class="chart-card" id="active-chart-card">
+          <div class="chart-head">
+            <h2 class="card-title" id="active-chart-title">活跃终端</h2>
+            <div class="legend">
+              <span><i class="sw sw-a"></i>已登录</span>
+              <span><i class="sw sw-b"></i>单机版</span>
+            </div>
+          </div>
+          <div class="chart-wrap" id="active-chart-wrap">
+            <svg class="chart" id="active-chart" role="img" aria-label="活跃终端趋势折线图"></svg>
+            <div class="chart-tip" id="active-tip" hidden></div>
+          </div>
+        </div>
+        <div id="active-table"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-feedback" role="tabpanel" aria-labelledby="tabbtn-feedback" hidden>
+      <div class="toolbar">
+        <div class="seg" id="seg-feedback-status" role="group" aria-label="反馈状态"></div>
+      </div>
+      <div class="out" id="out-feedback" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-feedbackDetail" aria-label="问题反馈详情" hidden>
+      <div class="out" id="out-feedbackDetail" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-contacts" role="tabpanel" aria-labelledby="tabbtn-contacts" hidden>
+      <div class="out" id="out-contacts" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-contactDetail" aria-label="用户联系详情" hidden>
+      <div class="out" id="out-contactDetail" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-members" aria-label="活跃明细列表" hidden>
+      <div class="toolbar">
+        <h2 class="card-title" id="members-title">活跃列表</h2>
+      </div>
+      <div class="out" id="out-members" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-users" role="tabpanel" aria-label="注册用户列表" hidden>
+      <div class="toolbar">
+
+        <input class="search" type="search" id="users-keyword" placeholder="搜索用户名 / 显示名 / 手机号 / 邮箱" aria-label="搜索注册用户" autocomplete="off" />
+      </div>
+      <div class="out" id="out-users" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-agents" aria-label="Agent 列表" hidden>
+      <div class="toolbar">
+        <input class="search" type="search" id="agents-keyword" placeholder="搜索 Agent 用户名 / 显示名" aria-label="搜索 Agent" />
+        <span class="list-filter" id="agents-filter" hidden></span>
+      </div>
+      <div class="out" id="out-agents" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="panel-devices" role="tabpanel" aria-label="终端列表" hidden>
+      <div class="toolbar">
+
+        <input class="search" type="search" id="devices-keyword" placeholder="搜索终端标识 / 账号 / 城市 / 终端名" aria-label="搜索终端" autocomplete="off" />
+        <div class="seg" id="seg-scope" role="group" aria-label="终端范围"></div>
+        <span class="list-filter" id="devices-filter" hidden></span>
+      </div>
+      <div class="out" id="out-devices" aria-live="polite"></div>
+    </section>
+  </div>
+</div>
+
+<dialog id="user-detail" class="user-detail" aria-labelledby="user-detail-title"></dialog>
+
+<dialog id="device-detail" class="user-detail" aria-labelledby="device-detail-title"></dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

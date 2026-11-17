@@ -1,0 +1,5 @@
+# pre = pre-release environment on ECS.
+# Shares the same ECS, the same RDS database and the OSS internal endpoint with production (prod); these settings come in via the profile group pre -> prod.
+# Only pre-release-specific differences go here: service directory, service name and log path are in <pre-release deploy dir>/env and the systemd unit on ECS.
+server:
+  port: 8180

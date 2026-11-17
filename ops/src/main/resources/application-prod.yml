@@ -1,0 +1,15 @@
+# prod = ECS deployment. Connects to the same RDS business database conductor uses, via the internal domain name.
+# Activity statistics only read online sessions; the support inbox and user-authorised tag edits write through the API.
+# ADING_DB_USER reuses conductor's RDS account (decided by the user on 2026-11-01);
+# read-only access to business tables is enforced by code, see "Database account" in docs/deployment.md.
+spring:
+  datasource:
+    url: jdbc:mysql://${ADING_DB_HOST}:${ADING_DB_PORT:3306}/${ADING_DB_NAME:ading}?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+    username: ${ADING_DB_USER}
+    password: ${ADING_DB_PASSWORD}
+
+# ops and OSS are both inside Alibaba Cloud, so attachments are read via the internal endpoint.
+ading:
+  ops:
+    oss:
+      endpoint: ${ADING_OSS_ENDPOINT:https://oss-cn-shanghai-internal.aliyuncs.com}

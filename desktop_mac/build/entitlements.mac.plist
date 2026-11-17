@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened Runtime exception list.
+
+  Hardened Runtime is a hard requirement for notarization, and the first things it
+  blocks by default are exactly what Electron depends on: V8 generates machine code
+  at runtime, and Electron's own Framework and several Helpers are not signed by Apple.
+  So each one must be allowed here explicitly.
+
+  The principle is to allow only what is required — every entry pulls the security
+  boundary back a little. Deliberately not added:
+    · com.apple.security.cs.allow-dyld-environment-variables
+      That is for debugging; enabling it allows code injection via environment variables. Production builds don't need it.
+    · Camera, microphone, screen recording
+      ADing's screenshots use webContents.capturePage(), capturing only its own windows, never system screen recording.
+    · Sandbox (com.apple.security.app-sandbox)
+      Distributed via Developer ID, not the App Store. With the sandbox on, ADing could not launch
+      codex / claude / qoder on the user's machine, which is ADing's core.
+-->
+<plist version="1.0">
+<dict>
+    <!-- V8 JIT-compiles JavaScript to machine code; without this the app won't start -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Some V8 code paths also need writable+executable memory; allow-jit alone is not enough -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Load libraries not signed by Apple, such as Electron Framework and Squirrel -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+      Allows requesting "Automation" permission and sending Apple events to other apps. When an Agent uses
+      AppleScript to control apps like System Events or Finder, the system evaluates and prompts under ADing's
+      identity; with Hardened Runtime on but without this entry, requests are rejected outright with no prompt.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

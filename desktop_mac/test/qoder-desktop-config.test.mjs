@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import path from 'node:path';import os from 'node:os';
+import {readChromiumPreference} from '../dist/platform/chromium-preferences.js';
+import {QoderCnAdapter} from '../dist/agents/qoder-cn.js';
+import {qoderCliModel} from '../dist/agents/qoder-desktop-config.js';
+const root=mkdtempSync(path.join(os.tmpdir(),'desktop-model-')),dir=path.join(root,'Local Storage','leveldb');mkdirSync(dir,{recursive:true});
+const old=process.env.QODERCN_APP_CONFIG_DIR;process.env.QODERCN_APP_CONFIG_DIR=root;
+const vi=n=>{const b=[];do{b.push((n&127)|(n>=128?128:0));n=Math.floor(n/128);}while(n);return Buffer.from(b);};
+const key=Buffer.from('_qoder-cn-app://renderer\0\x01qoder:chat-composer:selected-model');
+const batch=(seq,value)=>{const h=Buffer.alloc(12);h.writeBigUInt64LE(BigInt(seq));h.writeUInt32LE(1,8);return Buffer.concat([h,Buffer.from([value===undefined?0:1]),vi(key.length),key,...value===undefined?[]:[vi(value.length),value]]);};
+const record=(b,type=1)=>{const h=Buffer.alloc(7);h.writeUInt16LE(b.length,4);h[6]=type;return Buffer.concat([h,b]);};
+const pref=model=>Buffer.from('\x01'+JSON.stringify(model));
+const read=()=>readChromiumPreference(dir,'qoder-cn-app://renderer','qoder:chat-composer:selected-model');
+try{
+ writeFileSync(path.join(dir,'000001.log'),Buffer.concat([record(batch(1,pref('old'))),record(batch(2,pref('qmodel_38max')))]));
+ assert.equal(JSON.parse(read().value),'qmodel_38max');
+ const b=batch(3,pref('fragmented'));writeFileSync(path.join(dir,'000002.log'),Buffer.concat([record(b.subarray(0,20),2),record(b.subarray(20),4)]));assert.equal(JSON.parse(read().value),'fragmented');
+ writeFileSync(path.join(dir,'000003.log'),record(batch(4,undefined)));assert.deepEqual(read(),{found:true});
+ // Compacted table: one Snappy literal data block and an uncompressed index.
+ const tag=Buffer.alloc(8);tag.writeBigUInt64LE((5n<<8n)|1n);const k=Buffer.concat([key,tag]),v=pref('table-model');
+ const block=(k,v)=>Buffer.concat([vi(0),vi(k.length),vi(v.length),k,v,Buffer.alloc(4),Buffer.from([1,0,0,0])]);
+ const data=block(k,v),len=data.length-1;const compressed=Buffer.concat([vi(data.length),Buffer.from([240,len]),data]);
+ const handle=Buffer.concat([vi(0),vi(compressed.length)]),index=block(k,handle),indexAt=compressed.length+5;
+ const footer=Buffer.alloc(48);Buffer.concat([vi(0),vi(0),vi(indexAt),vi(index.length)]).copy(footer);footer.writeBigUInt64LE(0xdb4775248b80fb57n,40);
+ writeFileSync(path.join(dir,'000005.ldb'),Buffer.concat([compressed,Buffer.from([1,0,0,0,0]),index,Buffer.alloc(5),footer]));assert.equal(JSON.parse(read().value),'table-model');
+ writeFileSync(path.join(dir,'000006.log'),record(batch(6,pref('qmodel_38max'))));
+ const db=path.join(root,'main.sqlite');execFileSync('/usr/bin/sqlite3',[db,"CREATE TABLE chat_model_preferences(model_key TEXT,reasoning_effort TEXT);INSERT INTO chat_model_preferences VALUES('qmodel_38max','high');"]);
+ const adapter=new QoderCnAdapter(),config=await adapter.initializeConfiguration({},root);assert.equal(config.model,'qmodel_38max');assert.equal(config.reasoningEffort,'high');assert.equal(config.fastMode,undefined);assert.match(config.source,/desktop composer/);
+ const args=adapter.buildArgs({workspacePath:root,prompt:'OK',fullAccess:false,runtimeConfig:config});assert.equal(args[args.indexOf('--model')+1],'qmodel_38max');assert.equal(args[args.indexOf('--reasoning-effort')+1],'high');
+ const app=await adapter.initializeConfiguration({},root,{model:'app-model',reasoningEffort:'low',fastMode:false});assert.equal(app.model,'app-model');assert.equal(app.reasoningEffort,'low');assert.equal(app.fastMode,false);
+ execFileSync('/usr/bin/sqlite3',[db,"CREATE TABLE byok_model_capability_metadata(config_kind TEXT,config_id TEXT,model_key TEXT);INSERT INTO byok_model_capability_metadata VALUES('catalog','catalog-id','qwen'),('custom','custom-id','model/name');"]);
+ assert.equal(qoderCliModel('qoder-cn','qmodel_38max'),'qmodel_38max');
+ assert.equal(qoderCliModel('qoder-cn','byok:catalog-id'),'catalog-id');
+ assert.equal(qoderCliModel('qoder-cn','byok:custom-id'),'custom-id/model/name');
+ assert.equal(qoderCliModel('qoder-cn','byok:provider/model%2Fname'),'provider/model/name');
+ assert.throws(()=>qoderCliModel('qoder-cn','byok:'),/标识无效/);
+ const byokArgs=adapter.buildArgs({workspacePath:root,prompt:'OK',runtimeConfig:{model:'byok:catalog-id'}});
+ assert.equal(byokArgs[byokArgs.indexOf('--model')+1],'catalog-id','chat and verification both translate desktop BYOK ids');
+ console.log('qoder desktop: current composer, sequence ordering, deletion, fragmented log, compacted Snappy table, effort, app overrides and CLI arguments passed');
+}finally{if(old===undefined)delete process.env.QODERCN_APP_CONFIG_DIR;else process.env.QODERCN_APP_CONFIG_DIR=old;rmSync(root,{recursive:true,force:true});}

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+	<key>CFBundleDisplayName</key>
+	<string>阿钉</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+		<string>en</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>拍摄照片并添加到聊天附件</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<!-- Uses only system HTTPS, which is exempt from export controls; declaring it avoids answering the encryption question manually on every App Store upload -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Keychain group shared with the share extension (login tokens); Team prefix filled in at build time -->
+	<key>AdingKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.politeness.ading.shared</string>
+#if ADING_DEVELOP
+	<!-- Develop server host and port, from Build.xcconfig; the real address is in Build.local.xcconfig, not in Git -->
+	<key>AdingDevelopHost</key>
+	<string>$(ADING_DEVELOP_HOST)</string>
+	<!-- Only development (Debug) builds connect to the develop server on the home LAN (private IP, no HTTPS),
+	     so plaintext HTTP is allowed only for local network addresses; App Store builds lack these two keys, and pre-release and production both use HTTPS.
+	     This file goes through the C preprocessor; don't put URLs with double slashes in comments, they'd be truncated as line comments -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>连接家里局域网里的阿钉开发服务器</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+#endif
+</dict>
+</plist>

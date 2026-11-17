@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: ading-attachment:; media-src ading-attachment:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title data-i18n="html.app.name">阿钉</title>
+    <link rel="stylesheet" href="./assets/math/katex.min.css" />
+    <link rel="stylesheet" href="./ui/styles.css" />
+    <link rel="stylesheet" href="./ui/theme.css" />
+
+  </head>
+  <body>
+    <header class="window-bar">
+      <button id="app-settings-entry" class="window-brand" type="button" aria-label="设置" data-i18n-attr="aria-label:html.settings.title">
+        <span class="window-brand-mark"><img src="./assets/ading.png" alt="" /></span>
+        <span data-i18n="html.app.name">阿钉</span>
+      </button>
+      <button id="agents-entry" class="window-entry" type="button" aria-label="探索硅基人" data-i18n-attr="aria-label:html.nav.explore">
+        <span class="ading-agent-symbol" aria-hidden="true"><img src="./assets/ading.png" alt="" /></span>
+        <span data-i18n="html.nav.explore">探索硅基人</span>
+        <span id="agents-badge" class="entry-badge" hidden></span>
+      </button>
+      <button id="update-entry" class="window-update" type="button" aria-label="更新版本" data-i18n-attr="aria-label:html.nav.update" hidden>
+        <svg data-icon="install"></svg>
+        <span data-i18n="html.nav.update">更新版本</span>
+      </button>
+      <div class="window-account">
+        <button id="account-login" class="window-account-button" type="button" hidden data-i18n="html.account.login">登录</button>
+        <button id="account-logout" class="window-account-button" type="button" hidden data-i18n="html.account.logout">退出</button>
+      </div>
+    </header>
+
+    <div id="app-shell" class="app-shell">
+      <nav class="app-rail" aria-label="主导航" data-i18n-attr="aria-label:html.nav.main">
+        <button id="current-user-rail-avatar" class="app-logo current-user-avatar-button" type="button" aria-label="我的资料" title="我的资料" data-i18n-attr="aria-label:html.nav.profile;title:html.nav.profile" data-i18n="html.nav.me">我</button>
+        <div class="rail-nav">
+          <button id="tab-conversations" class="rail-button active" type="button" aria-label="会话" data-i18n-attr="aria-label:html.nav.conversations">
+            <svg data-icon="conversation"></svg>
+            <span data-i18n="html.nav.conversations">会话</span>
+          </button>
+          <button id="tab-contacts" class="rail-button" type="button" aria-label="联系人" data-i18n-attr="aria-label:html.nav.contacts">
+            <svg data-icon="person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+            <span data-i18n="html.nav.contacts">联系人</span>
+          </button>
+          <button id="tab-knowledge" class="rail-button" type="button" aria-label="知识" data-i18n-attr="aria-label:html.nav.knowledge" hidden>
+            <svg data-icon="knowledge"></svg>
+            <span data-i18n="html.nav.knowledge">知识</span>
+            <span id="knowledge-badge" class="rail-badge" hidden></span>
+          </button>
+        </div>
+        <button id="support-entry" class="rail-button support-rail-button" type="button" aria-label="帮助与支持" data-i18n-attr="aria-label:html.support.title">
+          <svg data-icon="support"></svg>
+          <span data-i18n="html.nav.support">支持</span>
+        </button>
+      </nav>
+
+      <aside id="chat-sidebar" class="sidebar chat-sidebar">
+        <button id="new-group" class="sidebar-add-button" type="button" aria-label="新建会话" title="新建会话" data-i18n-attr="aria-label:html.conversation.new;title:html.conversation.new" hidden>
+          <svg data-icon="add" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div id="contact-list" class="contact-list"></div>
+        <div id="sidebar-resizer" class="sidebar-resizer" role="separator" aria-label="调整列表宽度" data-i18n-attr="aria-label:html.sidebar.resize" aria-orientation="vertical" aria-valuemin="180" aria-valuemax="480" tabindex="0"></div>
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="收起列表" title="收起列表" data-i18n-attr="aria-label:html.sidebar.collapse;title:html.sidebar.collapse">
+          <svg data-icon="collapse"></svg>
+        </button>
+      </aside>
+
+      <main id="chat-pane" class="chat">
+        <header id="conversation-header" class="conversation-header">
+          <div id="conversation-identity" class="conversation-identity">
+            <div id="conversation-avatar" class="conversation-avatar">C</div>
+            <div id="conversation-title" class="conversation-title" data-i18n="html.chat.selectContact">选择一个联系人</div>
+          </div>
+          <div id="conversation-name-center" class="conversation-name-center" hidden></div>
+          <div class="conversation-header-actions">
+            <div class="conversation-switcher-wrap">
+              <button id="conversation-switcher-button" class="header-action" type="button" aria-label="切换会话" data-tooltip="切换会话" data-i18n-attr="aria-label:html.conversation.switch;data-tooltip:html.conversation.switch" hidden>
+                <svg data-icon="conversationSwitcher"></svg>
+              </button>
+              <div id="conversation-switcher-menu" class="conversation-switcher-menu" hidden></div>
+            </div>
+            <div class="conversation-add-member-wrap">
+              <button id="conversation-add-member-button" class="header-action" type="button" aria-label="添加成员" data-tooltip="添加成员" data-i18n-attr="aria-label:html.conversationSettings.addMembers;data-tooltip:html.conversationSettings.addMembers" hidden>
+                <svg data-icon="personAdd"></svg>
+              </button>
+              <div id="conversation-add-member-menu" class="conversation-agent-menu conversation-add-member-menu" aria-label="添加成员" data-i18n-attr="aria-label:html.conversationSettings.addMembers" hidden>
+                <div class="conversation-agent-menu-head" data-i18n="html.conversationSettings.addMembers">添加成员</div>
+                <input id="conversation-add-member-search" class="conversation-contact-search" type="search" autocomplete="off" placeholder="搜索联系人" aria-label="搜索联系人" data-i18n-attr="placeholder:html.conversation.searchContacts;aria-label:html.conversation.searchContacts" />
+                <div id="conversation-add-member-list"></div>
+              </div>
+            </div>
+          </div>
+          <div id="conversation-meta" class="conversation-meta" hidden></div>
+          <button
+            id="agent-settings-button"
+            class="icon-button"
+            type="button"
+            aria-label="Agent 设置"
+            title="Agent 设置"
+            data-i18n-attr="aria-label:html.chat.agentSettings;title:html.chat.agentSettings"
+            disabled
+            hidden
+          >
+            <svg data-icon="settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+
+        <div class="chat-content">
+          <div class="chat-message-column">
+            <section id="messages" class="messages" aria-live="polite"></section>
+            <button id="mention-jump" class="mention-jump" type="button" data-i18n="app.mentions.jump" hidden>有人@我</button>
+          </div>
+          <aside id="process-panel" class="process-panel" hidden>
+            <div class="process-panel-head">
+              <span id="process-panel-title" data-i18n="html.process.title">工作动态</span>
+              <button id="process-panel-close" class="process-panel-close" type="button" aria-label="关闭信息流" title="关闭信息流" data-i18n-attr="aria-label:html.process.close;title:html.process.close">
+                <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+              </button>
+            </div>
+            <div id="process-feed" class="process-feed"></div>
+            <div id="process-agent-filters" class="process-agent-filters" hidden></div>
+          </aside>
+        </div>
+
+        <div class="chat-status-bar">
+          <div id="conversation-share-notice" hidden></div>
+          <div id="conversation-queue-status" role="status" hidden></div>
+          <div id="message-filters" class="message-filters" hidden>
+            <button id="filter-humans" class="message-filter-button" type="button" aria-label="仅真人" data-tooltip="仅真人" data-i18n-attr="aria-label:html.filter.humans;data-tooltip:html.filter.humans">
+              <svg data-icon="person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+            </button>
+            <button id="filter-agents" class="message-filter-button" type="button" aria-label="仅 Agent" data-tooltip="仅 Agent" data-i18n-attr="aria-label:html.filter.agents;data-tooltip:html.filter.agents">
+              <svg data-icon="agent"></svg>
+            </button>
+            <div class="conversation-agent-menu-wrap">
+              <button id="conversation-agent-menu-button" class="header-action conversation-agent-menu-button" type="button" aria-label="参与 Agent" data-tooltip="参与 Agent" data-i18n-attr="aria-label:html.filter.conversationAgents;data-tooltip:html.filter.conversationAgents" hidden>
+                <svg data-icon="agents"></svg>
+                <span id="conversation-agent-count" class="conversation-agent-count" aria-hidden="true">0</span>
+              </button>
+              <div id="conversation-agent-menu" class="conversation-agent-menu" aria-label="参与 Agent 列表" data-i18n-attr="aria-label:html.filter.conversationAgentList" hidden></div>
+            </div>
+            <button id="toggle-process" class="message-filter-button" type="button" aria-label="信息流" data-tooltip="信息流" data-i18n-attr="aria-label:html.filter.activity;data-tooltip:html.filter.activity">
+              <svg data-icon="activity"></svg>
+            </button>
+            <button id="report-conversation" class="message-filter-button" type="button" aria-label="由 Leader 汇报" data-tooltip="汇报" data-i18n-attr="aria-label:html.filter.reportByLeader;data-tooltip:html.filter.report">
+              <svg data-icon="report"></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="discovery-status" class="status-bar" role="status" hidden>
+          <span id="discovery-status-text" tabindex="0"></span>
+          <button id="discovery-status-close" class="status-bar-close" type="button" hidden aria-label="关闭" data-tooltip="关闭" data-i18n-attr="aria-label:html.common.close;data-tooltip:html.common.close">
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </div>
+
+        <form id="composer" class="composer">
+          <div class="composer-box">
+            <div id="composer-reply" class="composer-reply" hidden></div>
+            <div id="composer-attachments" class="composer-attachments" hidden></div>
+            <textarea
+              id="message-input"
+              aria-label="消息内容"
+              placeholder="请输入消息"
+              data-i18n-attr="aria-label:html.composer.label;placeholder:html.composer.placeholder"
+              rows="1"
+              disabled
+            ></textarea>
+            <div class="composer-footer">
+              <div class="composer-actions">
+                <button id="attach-button" class="attach-button" type="button" aria-label="添加附件" data-tooltip="添加图片、视频或文件" data-i18n-attr="aria-label:html.composer.attach;data-tooltip:html.composer.attachTip" disabled>
+                  <svg data-icon="add"></svg>
+                </button>
+                <button id="stop-button" class="stop-button" type="button" hidden>
+                  <svg data-icon="pause" id="composer-stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"></svg>
+                </button>
+                <div class="send-control">
+                  <button id="send-button" class="send-button" type="submit" aria-label="发送消息" data-i18n-attr="aria-label:html.composer.sendLabel" disabled>
+                    <span data-i18n="html.composer.send">发送</span>
+                    <svg data-icon="send"></svg>
+                  </button>
+                  <button
+                    id="send-mode-button"
+                    class="send-mode-button"
+                    type="button"
+                    aria-label="切换发送快捷键"
+                    title="切换发送快捷键"
+                    data-i18n-attr="aria-label:html.composer.sendMode;title:html.composer.sendMode"
+                  >
+                    <svg data-icon="expand"></svg>
+                  </button>
+                  <div id="send-mode-menu" class="send-mode-menu" hidden>
+                    <button class="send-mode-option" type="button" data-send-mode="command-enter">
+                      <span data-i18n="html.composer.cmdEnterSend">⌘ Enter 发送</span>
+                      <small data-i18n="html.composer.enterNewline">Enter 换行</small>
+                      <span class="check">✓</span>
+                    </button>
+                    <button class="send-mode-option" type="button" data-send-mode="enter">
+                      <span data-i18n="html.composer.enterSend">Enter 发送</span>
+                      <small data-i18n="html.composer.shiftEnterNewline">Shift + Enter 换行</small>
+                      <span class="check">✓</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </main>
+
+      <main id="agent-pane" class="agent-pane" hidden>
+        <header class="agent-head">
+          <div class="agent-title" data-i18n="html.agents.title">硅基人（我的 agent 朋友们）</div>
+          <div class="agent-head-actions">
+            <button id="agent-recheck" class="agent-btn gh icon-only" type="button" aria-label="重新检测" data-tooltip="重新检测" data-i18n-attr="aria-label:html.agents.recheck;data-tooltip:html.agents.recheck">
+              <svg data-icon="refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"></svg>
+            </button>
+            <button id="agent-close" class="agent-close" type="button" aria-label="关闭" data-tooltip="关闭" data-i18n-attr="aria-label:html.common.close;data-tooltip:html.common.close">
+              <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"></svg>
+            </button>
+          </div>
+        </header>
+        <section class="agent-body">
+          <section class="agent-data-notice" aria-labelledby="agent-data-title">
+            <h3 id="agent-data-title" data-i18n="html.agent.dataTitle">消息转发授权</h3>
+            <p data-i18n="html.agent.dataSummary">首次添加 Agent 时需同意消息转发，之后无需重复授权。</p>
+            <button id="agent-data-details" class="support-secondary" type="button" data-i18n="html.agent.dataDetails">查看说明</button>
+          </section>
+          <div id="agent-rows"></div>
+        </section>
+      </main>
+
+      <aside id="knowledge-sidebar" class="sidebar" hidden>
+        <div id="scope-list" class="contact-list"></div>
+      </aside>
+
+      <main id="knowledge-pane" class="chat" hidden>
+        <header class="conversation-header">
+          <div class="conversation-identity">
+            <div>
+              <div id="knowledge-title" class="conversation-title" data-i18n="html.nav.knowledge">知识</div>
+              <div id="knowledge-meta" class="conversation-meta"></div>
+            </div>
+          </div>
+          <div class="k-actions">
+            <button id="knowledge-create-skill" class="pause-button" type="button" hidden data-i18n="html.knowledge.createSkill">新建技能</button>
+            <button id="knowledge-import-zip" class="pause-button" type="button" hidden data-i18n="html.knowledge.importZip">导入 zip</button>
+            <button id="knowledge-import-directory" class="pause-button" type="button" hidden data-i18n="html.knowledge.importDirectory">导入目录</button>
+            <button id="knowledge-retry-sync" class="pause-button" type="button" data-i18n="html.knowledge.retrySync">重试同步</button>
+            <button id="knowledge-add" class="pause-button" type="button" hidden data-i18n="html.knowledge.add">＋ 记一条</button>
+          </div>
+        </header>
+        <div id="knowledge-sync-notice" class="knowledge-sync-notice" role="status" aria-live="polite" hidden>
+          <div id="knowledge-sync-text" class="knowledge-sync-text" tabindex="0"></div>
+          <button id="knowledge-sync-close" class="pause-button" type="button" data-i18n="html.common.close">关闭</button>
+        </div>
+        <section id="knowledge-body" class="knowledge-body"></section>
+      </main>
+    </div>
+
+    <div id="data-switch-overlay" class="data-switch-overlay" hidden>
+      <div class="data-switch-card" role="status" aria-live="polite">
+        <span class="data-switch-spinner" aria-hidden="true"></span>
+        <p id="data-switch-text" data-i18n="html.dataSwitch.switching">正在切换…</p>
+      </div>
+    </div>
+
+    <dialog id="logout-confirm-dialog" class="contact-detail-dialog">
+      <div class="contact-detail-card">
+        <h2 data-i18n="html.account.logoutTitle">退出登录</h2>
+        <button id="logout-confirm-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <p id="logout-confirm-copy" class="delete-confirm-copy"></p>
+        <div class="contact-detail-actions">
+          <button id="logout-confirm-action" class="danger-primary" type="button" data-i18n="html.account.logoutTitle">退出登录</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="agent-data-dialog" class="contact-detail-dialog agent-data-dialog" aria-labelledby="agent-data-dialog-title" aria-describedby="agent-data-copy">
+      <div class="contact-detail-card">
+        <h2 id="agent-data-dialog-title" data-i18n="html.agent.dataTitle">消息转发授权</h2>
+        <button id="agent-data-close" class="contact-detail-close" type="button" aria-label="关闭" data-tooltip="关闭" data-i18n-attr="aria-label:html.common.close;data-tooltip:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div id="agent-data-copy" class="agent-data-copy">
+          <p data-i18n="html.agent.dataTasks">你在阿钉里发送的消息会通过 CLI 或 SDK 等方式转交给你选择的 Agent，并由其配置的 AI 服务提供方处理。是否同意？</p>
+          <button id="agent-data-privacy" class="support-secondary" type="button" data-i18n="html.agent.dataPrivacy">查看隐私政策</button>
+          <p id="agent-data-error" class="contact-detail-error" role="status" hidden></p>
+        </div>
+        <div class="contact-detail-actions">
+          <button id="agent-data-cancel" class="support-secondary" type="button" data-i18n="html.agent.dataDecline">暂不添加</button>
+          <button id="agent-data-agree" class="primary" type="button" data-i18n="html.agent.dataAgree">同意并添加</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="duplicate-name-dialog" class="contact-detail-dialog" aria-labelledby="duplicate-name-title" aria-describedby="duplicate-name-copy">
+      <div class="contact-detail-card">
+        <h2 id="duplicate-name-title" data-i18n="html.agent.duplicateTitle">有同名的 Agent</h2>
+        <button id="duplicate-name-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <p id="duplicate-name-copy" class="delete-confirm-copy"></p>
+        <div class="contact-detail-actions">
+          <button id="duplicate-name-keep" class="support-secondary" type="button" data-i18n="html.agent.duplicateKeep">保持原名</button>
+          <button id="duplicate-name-rename" class="primary" type="button" data-i18n="html.agent.duplicateRename">改名</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="account-dialog" class="account-dialog">
+      <form id="account-form" class="account-card" novalidate>
+        <header class="account-head">
+          <h2 id="account-title" data-i18n="html.account.title">登录阿钉</h2>
+          <button id="account-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+        <label class="support-field">
+          <span data-i18n="html.account.username">用户名</span>
+          <input id="account-username" type="text" maxlength="64" autocomplete="username" spellcheck="false" />
+        </label>
+        <label class="support-field">
+          <span data-i18n="html.account.password">密码</span>
+          <input id="account-password" type="password" autocomplete="current-password" />
+        </label>
+        <label id="account-confirm-field" class="support-field" hidden>
+          <span data-i18n="html.account.confirm">确认密码</span>
+          <input id="account-confirm" type="password" autocomplete="new-password" />
+        </label>
+        <div id="account-feedback" class="support-feedback"></div>
+        <p id="account-agents-notice" class="account-agents-notice" hidden></p>
+        <button id="account-submit" class="support-primary account-submit" type="submit" data-i18n="html.account.login">登录</button>
+        <p class="account-switch">
+          <span id="account-switch-hint" data-i18n="html.account.noAccount">还没有账号？</span>
+          <button id="account-switch" class="account-switch-button" type="button" data-i18n="html.account.register">注册</button>
+        </p>
+      </form>
+    </dialog>
+
+    <dialog id="app-settings-dialog" class="support-dialog app-settings-dialog">
+      <div class="support-card">
+        <header class="support-head">
+          <h2 data-i18n="html.settings.title">设置</h2>
+          <button id="app-settings-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+        <div class="support-layout">
+          <nav class="support-tabs" aria-label="设置项" data-i18n-attr="aria-label:html.settings.sections">
+            <button class="support-tab active" type="button" data-settings-tab="permissions" aria-label="权限" data-i18n-attr="aria-label:html.settings.permissions">
+              <svg data-icon="check"></svg>
+              <span data-i18n="html.settings.permissions">权限</span>
+            </button>
+            <button class="support-tab" type="button" data-settings-tab="language" aria-label="语言" data-i18n-attr="aria-label:html.settings.language">
+              <svg data-icon="language"></svg>
+              <span data-i18n="html.settings.language">语言</span>
+            </button>
+            <button class="support-tab" type="button" data-settings-tab="about" aria-label="关于" data-i18n-attr="aria-label:html.settings.about">
+              <svg data-icon="info"></svg>
+              <span data-i18n="html.settings.about">关于</span>
+            </button>
+          </nav>
+          <section id="settings-language-panel" class="support-panel" data-settings-panel="language" hidden>
+            <h3 data-i18n="html.settings.language">语言</h3>
+            <div class="settings-choices" role="radiogroup" aria-label="界面语言" data-i18n-attr="aria-label:html.settings.languageGroup">
+              <label class="settings-choice"><input type="radio" name="app-language" value="zh-CN" /> <span>中文</span></label>
+              <label class="settings-choice"><input type="radio" name="app-language" value="en" /> <span>English</span></label>
+            </div>
+          </section>
+          <section id="settings-permissions-panel" class="support-panel" data-settings-panel="permissions">
+            <h3 data-i18n="html.settings.permissionMode">agent 审核方式</h3>
+            <div id="permission-mode" class="settings-choices settings-mode-choices" role="radiogroup" aria-label="agent 审核方式" data-i18n-attr="aria-label:html.settings.permissionMode">
+              <label class="settings-choice settings-mode-choice"><input type="radio" name="permission-mode" value="manual" />
+                <span class="settings-choice-text"><span data-i18n="html.agents.permissionManual">人工审核</span><span class="settings-choice-hint" data-i18n="html.settings.permissionManualHint">需要授权时由你审批；已选择的“始终允许”规则仍有效。</span></span></label>
+              <label class="settings-choice settings-mode-choice"><input type="radio" name="permission-mode" value="leader" />
+                <span class="settings-choice-text"><span data-i18n="html.agents.permissionLeader">agent 自动审核</span><span class="settings-choice-hint" data-i18n="html.settings.permissionLeaderHint">由当前会话的 Leader 自动审核；单聊没有 Leader，或审核无法完成时，交给你审批。</span></span></label>
+              <label class="settings-choice settings-mode-choice"><input type="radio" name="permission-mode" value="unattended" checked />
+                <span class="settings-choice-text"><span data-i18n="html.agents.permissionUnattended">无人值守</span><span class="settings-choice-hint" data-i18n="html.agents.permissionUnattendedHint">无需审核，自动允许阿钉发起的权限请求。</span></span></label>
+            </div>
+            <h3 class="settings-section-title" data-i18n="html.settings.systemPermissions">系统授权</h3>
+            <ul id="settings-permission-list" class="settings-permission-list" aria-live="polite"></ul>
+            <div class="settings-update-actions">
+              <button id="settings-permissions-recheck" class="support-secondary" type="button" data-i18n="html.settings.permissionsRecheck">重新检查</button>
+            </div>
+            <h3 class="settings-section-title" data-i18n="html.settings.power">电脑睡眠</h3>
+            <div class="settings-choices settings-mode-choices">
+              <label class="settings-choice settings-mode-choice"><input id="settings-keep-awake" type="checkbox" checked />
+                <span class="settings-choice-text"><span data-i18n="html.settings.keepAwake">执行任务时保持电脑唤醒</span><span class="settings-choice-hint" data-i18n="html.settings.keepAwakeHint">有 Agent 在执行任务时阻止电脑空闲睡眠，全部结束后恢复。合上屏幕仍会睡眠。</span></span></label>
+            </div>
+          </section>
+          <section id="settings-about-panel" class="support-panel" data-settings-panel="about" hidden>
+            <div class="settings-about">
+              <img class="settings-about-icon" src="./assets/ading.png" alt="" />
+              <div>
+                <h3 data-i18n="html.app.name">阿钉</h3>
+                <p id="settings-about-version" class="settings-about-version"></p>
+              </div>
+            </div>
+            <p id="settings-update-status" class="settings-update-status" role="status"></p>
+            <div class="settings-update-actions">
+              <button id="settings-check-update" class="support-secondary" type="button" data-i18n="html.settings.checkUpdate">获取新版本</button>
+              <button id="settings-install-update" class="support-primary" type="button" hidden data-i18n="html.settings.installUpdate">更新</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="support-dialog" class="support-dialog">
+      <div class="support-card">
+        <header class="support-head">
+          <h2 data-i18n="html.support.title">帮助与支持</h2>
+          <button id="support-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+        <div class="support-layout">
+          <nav class="support-tabs" aria-label="支持功能" data-i18n-attr="aria-label:html.support.sections">
+            <button class="support-tab active" type="button" data-support-tab="report" aria-label="问题反馈" data-i18n-attr="aria-label:html.support.report">
+              <svg data-icon="warning"></svg>
+              <span data-i18n="html.support.report">问题反馈</span>
+            </button>
+            <button class="support-tab" type="button" data-support-tab="developer" aria-label="联系开发者" data-i18n-attr="aria-label:html.support.developer">
+              <svg data-icon="feedback"></svg>
+              <span data-i18n="html.support.developer">联系开发者</span>
+            </button>
+            <button class="support-tab" type="button" data-support-tab="tip" aria-label="支持阿钉" data-i18n-attr="aria-label:html.support.tip">
+              <svg data-icon="heart"></svg>
+              <span data-i18n="html.support.tip">支持阿钉</span>
+            </button>
+          </nav>
+
+          <section id="support-report-panel" class="support-panel">
+            <h3 data-i18n="html.support.reportTitle">告诉我们哪里不对</h3>
+            <label class="support-field">
+              <span data-i18n="html.support.occurredAt">发生时间</span>
+              <input id="support-report-occurred-at" type="datetime-local" step="1" required />
+            </label>
+            <label class="support-field">
+              <span data-i18n="html.support.description">问题描述</span>
+              <textarea id="support-report-description" maxlength="4000" placeholder="发生了什么？你原本希望看到什么？如果能稳定复现，也请写下操作步骤。" data-i18n-attr="placeholder:html.support.descriptionPlaceholder"></textarea>
+            </label>
+            <div class="support-capture-row">
+              <div id="support-capture-preview" class="support-capture-preview" data-i18n="html.support.capturing">正在截图…</div>
+              <div class="support-capture-copy">
+                <strong data-i18n="html.support.captureTitle">应用截图与运行日志</strong>
+                <span id="support-capture-status" data-i18n="html.support.captureStatus">正在自动准备附件</span>
+              </div>
+            </div>
+            <div id="support-attachments" class="support-attachments"></div>
+            <button id="support-add-image" class="support-add-image" type="button" data-i18n="html.support.addImage">＋ 添加图片</button>
+            <input id="support-image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+            <div class="support-action-row">
+              <span class="support-note" data-i18n="html.support.imageNote">最多 5 张，每张不超过 5 MB。提交后将在后台上传，不影响继续使用阿钉。</span>
+              <button id="support-submit-report" class="support-primary" type="button" data-i18n="html.support.submitReport">提交问题</button>
+            </div>
+            <div id="support-report-feedback" class="support-feedback"></div>
+          </section>
+
+          <section id="support-report-done" class="support-panel support-done" hidden>
+            <div class="support-done-mark" aria-hidden="true">
+              <svg data-icon="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+            </div>
+            <h3 id="support-done-title" data-i18n="html.support.reportDone">问题已上报</h3>
+            <p id="support-done-detail" class="support-done-detail"></p>
+            <p id="support-done-id" class="support-done-id"></p>
+            <div class="support-done-actions">
+              <button id="support-report-again" class="support-secondary" type="button" data-i18n="html.support.reportAgain">再报一个</button>
+              <button id="support-done-close" class="support-primary" type="button" data-i18n="html.common.done">完成</button>
+            </div>
+          </section>
+
+          <section id="support-developer-panel" class="support-panel" hidden>
+            <h3 data-i18n="html.support.developerTitle">与开发者沟通</h3>
+            <p class="support-lead" data-i18n="html.support.developerLead">意见，建议，需求，合作，闲聊</p>
+            <label class="support-field">
+              <span data-i18n="html.support.subject">主题</span>
+              <input id="support-developer-subject" type="text" maxlength="120" placeholder="请简要概括想沟通的事情" data-i18n-attr="placeholder:html.support.subjectPlaceholder" />
+            </label>
+            <label class="support-field">
+              <span data-i18n="html.support.content">内容</span>
+              <textarea id="support-developer-content" maxlength="4000" placeholder="请填写具体内容" data-i18n-attr="placeholder:html.support.contentPlaceholder"></textarea>
+            </label>
+            <label class="support-field">
+              <span data-i18n="html.support.replyTo">回复方式</span>
+              <input id="support-developer-reply-to" type="text" maxlength="200" placeholder="建议填写邮箱地址，也可以填写其他联系方式" data-i18n-attr="placeholder:html.support.replyToPlaceholder" />
+            </label>
+            <div id="support-developer-attachments" class="support-file-list"></div>
+            <button id="support-developer-add-file" class="support-add-image" type="button" data-i18n="html.support.addAttachment">＋ 添加附件</button>
+            <input id="support-developer-file-input" type="file" multiple hidden />
+            <div class="support-action-row">
+              <span class="support-note" data-i18n="html.support.attachmentNote">最多 5 个，每个不超过 5 MB。</span>
+              <button id="support-email-developer" class="support-primary" type="button" data-i18n="html.composer.send">发送</button>
+            </div>
+            <div id="support-developer-feedback" class="support-feedback"></div>
+          </section>
+
+          <section id="support-developer-done" class="support-panel support-done" hidden>
+            <div class="support-done-mark" aria-hidden="true">
+              <svg data-icon="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+            </div>
+            <h3 data-i18n="html.support.developerDone">已发送给开发者</h3>
+            <p id="support-developer-done-detail" class="support-done-detail"></p>
+            <p id="support-developer-done-id" class="support-done-id"></p>
+            <div class="support-done-actions">
+              <button id="support-developer-again" class="support-secondary" type="button" data-i18n="html.support.developerAgain">再发一条</button>
+              <button id="support-developer-done-close" class="support-primary" type="button" data-i18n="html.common.done">完成</button>
+            </div>
+          </section>
+
+          <!-- Tipping only happens in the mobile app (App Store in-app purchase); the desktop app only points there and handles no payments -->
+          <section id="support-tip-panel" class="support-panel" hidden>
+            <img class="support-mobile-qr" src="./assets/mobile-download-qr.svg" alt="手机版下载二维码" data-i18n-attr="alt:html.support.mobileQr" width="180" height="180" />
+            <p class="support-mobile-caption" data-i18n="html.support.tipLead">请下载手机版支持阿钉。</p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="contact-detail-dialog" class="contact-detail-dialog">
+      <form id="contact-detail-form" class="contact-detail-card">
+        <h2 id="contact-detail-title" data-i18n="html.profile.title">个人详情</h2>
+        <button id="contact-detail-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div class="contact-detail-profile">
+          <div class="contact-detail-avatar-wrap">
+            <button id="contact-detail-avatar" class="contact-detail-avatar" type="button" aria-label="查看头像原图" title="查看头像原图" data-i18n-attr="aria-label:html.profile.viewAvatar;title:html.profile.viewAvatar"></button>
+            <button id="contact-avatar-change" class="contact-avatar-change" type="button" aria-label="更换头像" title="更换头像" data-i18n-attr="aria-label:html.profile.changeAvatar;title:html.profile.changeAvatar"><svg data-icon="add"></svg></button>
+          </div>
+          <input id="contact-avatar-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+          <div>
+            <div id="contact-detail-status" class="contact-detail-status"></div>
+          </div>
+        </div>
+        <div class="contact-detail-fields">
+          <label class="contact-detail-field">
+            <span data-i18n="html.profile.name">花名</span>
+            <input id="contact-detail-name" maxlength="30" autocomplete="off" />
+          </label>
+          <label class="contact-detail-field">
+            <span data-i18n="html.account.username">用户名</span>
+            <input id="contact-detail-username" readonly />
+          </label>
+          <label id="contact-agent-kind-field" class="contact-detail-field">
+            <span data-i18n="html.profile.agentKind">Agent 类型</span>
+            <input id="contact-detail-agent-kind" readonly />
+          </label>
+          <label id="contact-agent-version-field" class="contact-detail-field">
+            <span data-i18n="html.profile.agentVersion">Agent 版本</span>
+            <input id="contact-detail-version" readonly />
+          </label>
+          <label id="contact-agent-model-field" class="contact-detail-field" hidden>
+            <span data-i18n="html.profile.agentModel">模型</span>
+            <select id="contact-detail-model"></select>
+            <small id="contact-detail-model-hint" class="contact-detail-hint"></small>
+          </label>
+          <label id="contact-agent-computer-field" class="contact-detail-field" hidden>
+            <span data-i18n="html.profile.agentComputer">所在电脑</span>
+            <input id="contact-detail-computer" readonly />
+          </label>
+          <label id="contact-phone-field" class="contact-detail-field">
+            <span data-i18n="html.profile.phone">手机号</span>
+            <input id="contact-detail-phone" maxlength="30" autocomplete="tel" />
+          </label>
+          <label id="contact-email-field" class="contact-detail-field">
+            <span data-i18n="html.profile.email">邮箱</span>
+            <input id="contact-detail-email" type="email" maxlength="254" autocomplete="email" />
+          </label>
+        </div>
+        <div id="contact-detail-error" class="contact-detail-error"></div>
+        <div class="contact-detail-actions">
+          <!-- Only signed-in accounts have a password; the standalone edition doesn't show this entry -->
+          <button id="contact-change-password" class="support-secondary" type="button" hidden data-i18n="html.profile.changePassword">修改密码</button>
+          <button id="contact-detail-refresh-status" class="support-secondary" type="button" hidden data-i18n="html.profile.refreshStatus">更新状态</button>
+          <button id="contact-detail-save" class="primary" type="submit" data-i18n="html.common.save">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="password-dialog" class="contact-detail-dialog">
+      <form id="password-form" class="contact-detail-card">
+        <h2 data-i18n="html.profile.changePassword">修改密码</h2>
+        <button id="password-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div class="contact-detail-fields">
+          <label class="contact-detail-field">
+            <span data-i18n="html.profile.currentPassword">原密码</span>
+            <input id="password-current" type="password" autocomplete="current-password" required />
+          </label>
+          <label class="contact-detail-field">
+            <span data-i18n="html.profile.newPassword">新密码</span>
+            <input id="password-new" type="password" autocomplete="new-password" required />
+          </label>
+          <label class="contact-detail-field">
+            <span data-i18n="html.profile.confirmPassword">确认新密码</span>
+            <input id="password-confirm" type="password" autocomplete="new-password" required />
+          </label>
+        </div>
+        <div id="password-error" class="contact-detail-error"></div>
+        <div class="contact-detail-actions">
+          <button id="password-submit" class="primary" type="submit" data-i18n="html.common.save">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="attachment-image-dialog" class="attachment-image-dialog" aria-labelledby="attachment-image-name">
+      <div class="attachment-image-shell">
+        <div class="attachment-image-header">
+          <span id="attachment-image-name"></span>
+          <button id="attachment-image-zoom-out" class="status-bar-close" type="button" aria-label="缩小" data-tooltip="缩小" data-i18n-attr="aria-label:html.attachment.zoomOut;data-tooltip:html.attachment.zoomOut">
+            <svg data-icon="zoomOut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+          <button id="attachment-image-zoom-in" class="status-bar-close" type="button" aria-label="放大" data-tooltip="放大" data-i18n-attr="aria-label:html.attachment.zoomIn;data-tooltip:html.attachment.zoomIn">
+            <svg data-icon="zoomIn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+          <button id="attachment-image-save" class="status-bar-close" type="button" aria-label="下载" data-tooltip="下载" data-i18n-attr="aria-label:html.attachment.download;data-tooltip:html.attachment.download">
+            <svg data-icon="download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+          <button id="attachment-image-close" class="status-bar-close" type="button" aria-label="关闭" data-tooltip="关闭" data-i18n-attr="aria-label:html.common.close;data-tooltip:html.common.close" autofocus>
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </div>
+        <div id="attachment-image-viewport" class="attachment-image-viewport"><img id="attachment-image-preview" alt="" /></div>
+        <p id="attachment-image-error" hidden data-i18n="html.attachment.imageLoadFailed">无法加载图片</p>
+      </div>
+    </dialog>
+
+    <dialog id="avatar-preview-dialog" class="avatar-preview-dialog" aria-label="头像原图" data-i18n-attr="aria-label:html.profile.avatarOriginal">
+      <div class="avatar-preview-shell">
+        <button id="avatar-preview-close" class="contact-detail-close avatar-preview-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div class="avatar-preview-viewport">
+          <img id="avatar-preview-image" class="avatar-preview-image" alt="头像原图" data-i18n-attr="alt:html.profile.avatarOriginal" />
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="report-confirm-dialog" class="contact-detail-dialog" aria-labelledby="report-confirm-title" aria-describedby="report-confirm-copy">
+      <div class="contact-detail-card">
+        <h2 id="report-confirm-title" data-i18n="html.report.title">汇报进展</h2>
+        <button id="report-confirm-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close"></svg>
+        </button>
+        <p id="report-confirm-copy" class="delete-confirm-copy" data-i18n="html.report.copy">让 Leader 汇报当前会话的进展吗？</p>
+        <div class="contact-detail-actions">
+          <button id="report-confirm-cancel" class="secondary" type="button" autofocus data-i18n="html.common.cancel">取消</button>
+          <button id="report-confirm-action" class="primary" type="button" data-i18n="html.report.confirm">确认汇报</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="update-ready-dialog" class="contact-detail-dialog" aria-labelledby="update-ready-title" aria-describedby="update-ready-copy">
+      <div class="contact-detail-card">
+        <h2 id="update-ready-title" data-i18n="html.update.readyTitle">新版本已就绪</h2>
+        <button id="update-ready-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close"></svg>
+        </button>
+        <p id="update-ready-copy" class="delete-confirm-copy"></p>
+        <div class="contact-detail-actions">
+          <button id="update-ready-later" class="secondary" type="button" autofocus data-i18n="html.update.later">稍后</button>
+          <button id="update-ready-action" class="primary" type="button" data-i18n="html.update.restart">重启更新</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Forced update: can't be dismissed, only updated. Esc and clicking the backdrop do nothing (see renderer.ts) -->
+    <dialog id="update-required-dialog" class="contact-detail-dialog" aria-labelledby="update-required-title" aria-describedby="update-required-copy">
+      <div class="contact-detail-card">
+        <h2 id="update-required-title" data-i18n="html.update.requiredTitle">需要更新</h2>
+        <p id="update-required-copy" class="delete-confirm-copy"></p>
+        <p id="update-required-status" class="delete-confirm-copy" aria-live="polite"></p>
+        <div class="contact-detail-actions">
+          <button id="update-required-action" class="primary" type="button" data-i18n="html.update.restart">重启更新</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="delete-confirm-dialog" class="contact-detail-dialog">
+      <div class="contact-detail-card">
+        <h2 id="delete-confirm-title" data-i18n="html.delete.title">确认删除</h2>
+        <button id="delete-confirm-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <p id="delete-confirm-copy" class="delete-confirm-copy"></p>
+        <div class="contact-detail-actions">
+          <button id="delete-confirm-action" class="danger-primary" type="button" data-i18n="html.delete.action">删除</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="readonly-profile-dialog" class="contact-detail-dialog">
+      <div class="contact-detail-card">
+        <h2 data-i18n="html.profile.title">个人详情</h2>
+        <button id="readonly-profile-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <div class="contact-detail-profile">
+          <div id="readonly-profile-avatar" class="contact-detail-avatar"></div>
+          <div>
+            <div id="readonly-profile-name" class="readonly-profile-name"></div>
+            <div id="readonly-profile-subtitle" class="readonly-profile-subtitle"></div>
+          </div>
+        </div>
+        <div id="readonly-profile-grid" class="readonly-profile-grid"></div>
+      </div>
+    </dialog>
+
+    <dialog id="friend-dialog" class="contact-detail-dialog">
+      <div class="contact-detail-card friend-card">
+        <h2 data-i18n="html.friends.title">加好友</h2>
+        <button id="friend-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+        </button>
+        <form id="friend-search-form" class="friend-search">
+          <input id="friend-search-input" type="search" autocomplete="off" placeholder="用户名、邮箱或手机号" aria-label="用户名、邮箱或手机号" data-i18n-attr="placeholder:html.friends.searchPlaceholder;aria-label:html.friends.searchPlaceholder" />
+          <button id="friend-search-submit" class="primary" type="submit" data-i18n="html.friends.search">查找</button>
+        </form>
+        <div id="friend-search-results" class="friend-list"></div>
+        <h3 class="friend-section-title" data-i18n="html.friends.requests">好友申请</h3>
+        <div id="friend-request-list" class="friend-list"></div>
+        <h3 id="friend-outgoing-title" class="friend-section-title" data-i18n="html.friends.outgoing" hidden>我发出的申请</h3>
+        <div id="friend-outgoing-list" class="friend-list"></div>
+        <div id="friend-error" class="contact-detail-error" role="status"></div>
+      </div>
+    </dialog>
+
+    <dialog id="group-dialog">
+      <div class="dialog-content conversation-dialog-content">
+        <header class="conversation-dialog-header">
+          <h2 data-i18n="html.conversation.new">新建会话</h2>
+          <button id="group-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+            <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+        <div class="conversation-dialog-body">
+          <aside class="conversation-contact-column">
+            <div class="conversation-contact-title"><span data-i18n="html.conversation.pickMembers">拉谁进来</span> <label class="member-select-all"><input id="group-select-all" type="checkbox" /><span data-i18n="html.conversation.selectAll">全选</span></label></div>
+            <input id="group-member-search" class="conversation-contact-search" type="search" autocomplete="off" placeholder="搜索联系人" aria-label="搜索联系人" data-i18n-attr="placeholder:html.conversation.searchContacts;aria-label:html.conversation.searchContacts" />
+            <div id="group-member-list" class="member-picker"></div>
+          </aside>
+        </div>
+        <div class="dialog-actions conversation-dialog-actions">
+          <label class="permanent-option compact-check"><input id="group-permanent" type="checkbox" /><span data-i18n="app.conversation.permanent">永久会话</span></label>
+          <button id="group-confirm" class="primary" type="button" data-i18n="html.conversation.create">创建</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <div class="dialog-content conversation-settings-card">
+        <header class="conversation-settings-header">
+          <h2 id="settings-title" data-i18n="html.conversationSettings.title">会话设置</h2>
+          <button id="settings-close" class="contact-detail-close" type="button" aria-label="关闭" title="关闭" data-i18n-attr="aria-label:html.common.close;title:html.common.close">
+          <svg data-icon="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"></svg>
+          </button>
+        </header>
+        <div class="conversation-settings-body">
+          <section class="conversation-settings-main">
+          <label class="permanent-filter"><input id="settings-permanent" type="checkbox" /><span data-i18n="app.conversation.permanent">永久会话</span></label>
+          <div id="group-fields">
+          <label class="settings-field">
+            <span data-i18n="html.conversation.name">会话名称</span>
+            <input id="group-name-input" maxlength="40" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span data-i18n="html.conversation.goal">会话目标</span>
+            <textarea id="conversation-goal-input" rows="3" placeholder="这次要达成什么" data-i18n-attr="placeholder:html.conversationSettings.goalPlaceholder"></textarea>
+          </label>
+            <label class="settings-field"><span data-i18n="html.conversation.instructions">你的指示</span>
+              <textarea id="conversation-instructions" rows="3" placeholder="工作方向、分工偏好或需要注意的事项" data-i18n-attr="placeholder:html.conversation.instructionsPlaceholder"></textarea>
+            </label>
+        </div>
+
+        <label class="settings-field workspace-ui" hidden>
+          <span data-i18n="html.conversationSettings.workspace">所属工作区</span>
+          <select id="settings-workspace"></select>
+          <span id="settings-workspace-hint" class="field-note"></span>
+        </label>
+
+        <label class="settings-field workspace-ui" hidden>
+          <span data-i18n="html.conversationSettings.directory">工作目录</span>
+          <input id="workspace-input" autocomplete="off" placeholder="留空就用工作区自己的目录" data-i18n-attr="placeholder:html.conversationSettings.directoryPlaceholder" />
+          <span class="field-note" data-i18n="html.conversationSettings.directoryNote">只有想让这个会话跑在子目录里时才填。</span>
+        </label>
+
+          </section>
+          <aside id="conversation-member-settings" class="conversation-settings-members">
+            <div class="conversation-settings-member-header">
+              <h3 id="settings-members-title" data-i18n="html.conversationSettings.members">成员</h3>
+              <button id="settings-add-members" class="member-icon-button" type="button" aria-label="添加成员" title="添加成员" data-i18n-attr="aria-label:html.conversationSettings.addMembers;title:html.conversationSettings.addMembers">
+                <svg data-icon="add" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"></svg>
+              </button>
+            </div>
+            <input id="settings-member-search" class="conversation-contact-search" type="search" autocomplete="off" placeholder="搜索成员" aria-label="搜索成员" data-i18n-attr="placeholder:html.conversationSettings.searchMembers;aria-label:html.conversationSettings.searchMembers" />
+            <div id="member-editor" class="member-editor"></div>
+          </aside>
+        </div>
+        <footer class="dialog-actions conversation-settings-footer">
+          <div id="conversation-settings-error" class="contact-detail-error" role="status"></div>
+          <button id="settings-save" class="primary" type="button" data-i18n="html.common.save">保存</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="../dist/renderer.js"></script>
+    <script src="./assets/math/katex.min.js"></script>
+    <script src="./assets/math/message-math.js"></script>
+  </body>
+</html>

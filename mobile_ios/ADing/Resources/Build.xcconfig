@@ -1,0 +1,6 @@
+// Machine-specific build settings stay out of the repo: create Build.local.xcconfig (not in Git) in the same directory to override the two below.
+// DEVELOPMENT_TEAM: Apple Developer Team ID, needed for running on device and archiving.
+// ADING_DEVELOP_HOST: develop server host and port, without scheme (a double slash is a comment in xcconfig).
+DEVELOPMENT_TEAM =
+ADING_DEVELOP_HOST = localhost:8080
+#include? "Build.local.xcconfig"

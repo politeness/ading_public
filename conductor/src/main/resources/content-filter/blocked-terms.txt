@@ -1,0 +1,79 @@
+# Banned terms for messages between real people (App Store Review Guideline 1.2: apps where users can send content to each other must be able to filter objectionable content).
+# One per line. Pure English terms match whole words (so words like class and assess are not hit); terms containing Chinese match as substrings, with spaces and punctuation removed before matching,
+# so split spellings like "色 情" and "色.情" are also caught. Only clearly objectionable content is blocked, not ordinary profanity: false positives hurt the experience more than misses.
+# Changes to this list take effect only after the backend is rebuilt and redeployed.
+
+# Child sexual abuse material
+儿童色情
+幼女色情
+萝莉色情
+恋童
+child porn
+childporn
+cp资源
+underage sex
+pedophile
+pedo
+
+# Pornography, solicitation
+色情视频
+黄色视频
+成人视频
+约炮
+一夜情服务
+援交
+招嫖
+上门服务小姐
+裸聊
+porn
+pornhub
+xvideos
+blowjob
+cumshot
+escort service
+nudes for sale
+
+# Hate, discrimination
+nigger
+nigga
+faggot
+kike
+chink
+spic
+tranny
+支那猪
+黑鬼
+
+# Violence, terrorism, self-harm
+我要杀了你
+杀你全家
+炸死你们
+砍死你
+恐怖袭击
+制作炸弹
+自制炸药
+kill yourself
+kys
+i will kill you
+bomb making
+
+# Drug and firearm trafficking
+卖冰毒
+出售冰毒
+买冰毒
+海洛因出售
+卖大麻
+出售枪支
+买卖枪支
+buy cocaine
+sell cocaine
+buy meth
+sell meth
+
+# Fraud, gambling
+刷单返利
+网赌
+网络赌博
+博彩平台
+代办假证
+洗钱
