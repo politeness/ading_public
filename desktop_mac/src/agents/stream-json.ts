@@ -123,7 +123,8 @@ function blocksOf(event: StreamEvent): ContentBlock[] {
 /** Only parses, doesn't judge completeness - even on failure it must hand back the session id already obtained */
 export function parseStreamJson(
   output: string,
-  previousThreadId?: string
+  previousThreadId?: string,
+  preserveReplyText = false
 ): StreamParseResult {
   let threadId = previousThreadId;
   // A steer that lands after the final answer makes the CLI run a follow-up turn
@@ -132,6 +133,7 @@ export function parseStreamJson(
   const finals: string[] = [];
   let error: string | undefined;
   const assistantText: string[] = [];
+  const replyText: string[] = [];
 
   for (const line of output.split("\n")) {
     const event = parseLine(line);
@@ -145,6 +147,7 @@ export function parseStreamJson(
       for (const block of blocksOf(event)) {
         if (block.type === "text" && block.text?.trim()) {
           assistantText.push(block.text.trim());
+          replyText.push(block.text.trim());
         }
       }
       continue;
@@ -161,6 +164,7 @@ export function parseStreamJson(
       }
       if (typeof event.result === "string" && event.result.trim()) {
         finals.push(event.result.trim());
+        replyText.push(event.result.trim());
       }
     }
   }
@@ -172,7 +176,11 @@ export function parseStreamJson(
   // makes the shared context budget refuse a safe retry. Keep real prior text.
   const diagnostic = error ? cleanAgentOutput(error) : undefined;
   const replies = diagnostic ? assistantText.filter(text => cleanAgentOutput(text) !== diagnostic) : assistantText;
-  const message = finals.length ? joinTurnResults(finals) :
+  // A direct reply can answer one request before tools and another afterwards.
+  // The result only repeats the final segment; it must not erase the earlier answer.
+  // Coordination callers retain their final-only control protocol.
+  const complete = diagnostic ? replyText.filter(text => cleanAgentOutput(text) !== diagnostic) : replyText;
+  const message = preserveReplyText ? joinTurnResults(complete) : finals.length ? joinTurnResults(finals) :
     replies.length ? cleanAgentOutput(replies[replies.length - 1]) : undefined;
   return { threadId, message: message || undefined, error };
 }
@@ -182,8 +190,10 @@ export function parseStreamJson(
 function joinTurnResults(finals: string[]): string {
   const parts: string[] = [];
   for (const cleaned of finals.map(cleanAgentOutput).filter(Boolean)) {
+    const combined = parts.join("\n\n");
     const last = parts[parts.length - 1];
-    if (last !== undefined && cleaned.startsWith(last)) parts[parts.length - 1] = cleaned;
+    if (combined && cleaned.startsWith(combined)) parts.splice(0, parts.length, cleaned);
+    else if (last !== undefined && cleaned.startsWith(last)) parts[parts.length - 1] = cleaned;
     else parts.push(cleaned);
   }
   const spoken = parts.filter(part => part !== "SKIP");

@@ -1,5 +1,5 @@
--- Sync lock for uploading user skills and memory to the cloud: a user's multiple computers queue up and never write OSS concurrently.
--- New table only — old conductor versions don't know it and are unaffected. Back up first. Safe to rerun.
+-- Sync lock for uploading user skills and memory to the cloud: the multiple computers of a user queue up and never write OSS concurrently.
+-- New table only — old conductor versions do not know it and are unaffected. Back up first. Safe to rerun.
 
 CREATE TABLE IF NOT EXISTS `knowledge_locks` (
   `user_id`     VARCHAR(64) NOT NULL COMMENT 'users.user_id, one lock per user at a time',

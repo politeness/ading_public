@@ -11,7 +11,7 @@ import { log, safeArgs } from "../orchestration/diagnostics";
 import { skillRootMayExist } from "./cli-agent";
 import { ProcessRunner } from "./process-runner";
 import { runCodexWithApprovals } from "./codex-app-server";
-import { codexChildEnvironment } from "./codex-environment";
+import { prepareCodexSessionHome, codexSessionConfigArgs, nativeCodexHome } from "./codex-session-home";
 import { isolatedHome } from "./isolated-home";
 import { AGENT_PROBE_TIMEOUT_MS, cliListsFlag, handshakeArgs, handshakeCommand, handshakeHelp, withHandshakeDirectory, type OneShotAsk } from "./handshake";
 import type { SkillTarget } from "../skills/target";
@@ -94,12 +94,20 @@ export class CodexAdapter extends ExecutionAgent implements AgentAdapter {
   }
 
   protected async executeTurn(agent:DiscoveredAgent,input:TurnInput):Promise<AgentTurnOutcome> {
-    if(!input.isolateMemory)return this.runCodex(agent,input,codexChildEnvironment());
-    // features.memories only covers memories/. The global AGENTS.md has no switch of its own:
-    // project_doc_max_bytes=0 leaves it loaded and drops the workspace's instead. Tested on 0.166.
-    const home=await isolatedHome("codex",process.env.CODEX_HOME || path.join(os.homedir(),".codex"),name=>name==="AGENTS.md"||name==="AGENTS.override.md"||name.startsWith("memories"),["auth.json"],input.workspacePath);
-    try {return await this.runCodex(agent,input,{...codexChildEnvironment(),CODEX_HOME:home.path});}
-    finally {await home.settle().catch(error=>log("isolated-home-settle-failed",{kind:"codex",error:String(error)}));}
+    const sessions = await prepareCodexSessionHome(input.threadId);
+    let memoryHome: Awaited<ReturnType<typeof isolatedHome>> | undefined;
+    try {
+      if (input.isolateMemory) {
+        memoryHome = await isolatedHome("codex", sessions.path,
+          name => name === "AGENTS.md" || name === "AGENTS.override.md" || name.startsWith("memories"),
+          ["auth.json"], input.workspacePath);
+      }
+      const home = memoryHome?.path ?? sessions.path;
+      return await this.runCodex(agent, input, { ...sessions.env, CODEX_HOME: home, ADING_CODEX_SESSION_HOME: home });
+    } finally {
+      await memoryHome?.settle().catch(error => log("isolated-home-settle-failed", {kind:"codex", error:String(error)}));
+      await sessions.settle().catch(error => log("codex-session-home-settle-failed", {error:String(error)}));
+    }
   }
 
   private async runCodex(agent:DiscoveredAgent,input:TurnInput,env:NodeJS.ProcessEnv):Promise<AgentTurnOutcome> {
@@ -146,6 +154,8 @@ export class CodexAdapter extends ExecutionAgent implements AgentAdapter {
           'approval_policy="never"',
           "--skip-git-repo-check"
         ];
+
+    sandboxOptions.push(...codexSessionConfigArgs(env));
 
     if (input.communicationOnly) {
       sandboxOptions.push(...["shell_tool", "shell_snapshot", "apps", "plugins", "hooks", "image_generation", "view_image", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "in_app_browser", "sleep_tool", "skill_mcp_dependency_install", "skill_search", "multi_agent", "multi_agent_v2", "goals", "tool_suggest", "code_mode_host"].flatMap(name=>["-c",`features.${name}=false`]),"-c",'web_search="disabled"',"-c","mcp_servers={}");
@@ -285,23 +295,28 @@ export class CodexAdapter extends ExecutionAgent implements AgentAdapter {
       const disabledServers = Object.keys(config.mcp_servers ?? {}).map(name =>
         `${JSON.stringify(name)}={enabled=false}`).join(",");
       args.splice(1, 0, "-c", `mcp_servers={${disabledServers}}`);
-      const run = await this.runner.run(`${agent.localUuid}::verify`, {
-        ...handshakeCommand(agent.executablePath, args),
-        cwd,
-        env: codexChildEnvironment(),
-        label: "Codex",
-        backgroundPriority: true,
-        timeoutMs: ask ? 60_000 : AGENT_PROBE_TIMEOUT_MS,
-        onLine: () => undefined
-      });
-      const parsed = this.parseOutput(run.stdout);
-      if (parsed.message && !run.failure) {
-        return { ok: true, text: parsed.message.slice(0, 200) };
-      }
-      return {
-        ok: false,
-        text: parsed.error || run.failure || run.stderr || p("没有拿到回复", "No reply was received")
-      };
+      const sessions = await prepareCodexSessionHome();
+      args.splice(1, 0, ...codexSessionConfigArgs(sessions.env));
+      try {
+        const run = await this.runner.run(`${agent.localUuid}::verify`, {
+          ...handshakeCommand(agent.executablePath, args),
+          cwd,
+          env: sessions.env,
+          label: "Codex",
+          backgroundPriority: true,
+          timeoutMs: ask ? 60_000 : AGENT_PROBE_TIMEOUT_MS,
+          onLine: () => undefined
+        });
+        const parsed = this.parseOutput(run.stdout);
+        if (parsed.message && !run.failure) {
+          // The 200-character cap is for the connectivity check display; a question asked through askOnce needs the full answer.
+          return { ok: true, text: ask ? parsed.message : parsed.message.slice(0, 200) };
+        }
+        return {
+          ok: false,
+          text: parsed.error || run.failure || run.stderr || p("没有拿到回复", "No reply was received")
+        };
+      } finally { await sessions.settle(); }
     });
   }
 
@@ -317,7 +332,7 @@ export class CodexAdapter extends ExecutionAgent implements AgentAdapter {
    * If ~/.codex isn't detected, return null; never create the directory from scratch.
    */
   async resolveSkillTarget(scope: Scope, workspacePath: string): Promise<SkillTarget | null> {
-    const home = path.join(os.homedir(), ".codex");
+    const home = nativeCodexHome();
     const base = scope === "workspace" ? workspacePath : home;
     if (!(await skillRootMayExist(base))) return null;
     const dirPath = scope === "workspace" ? path.join(base, ".codex", "skills") : path.join(base, "skills");

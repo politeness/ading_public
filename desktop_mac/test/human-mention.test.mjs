@@ -44,10 +44,12 @@ try {
  assert.match(prompts[0].prompt,/@Alice 帮我看下报价\n调度上下文（不是成员发言）：上面这条消息 @ 了 Alice，是提醒对方，只由对方处理/,'the note follows the reminder');
  prompts.length=0;
 
- // @-mentioning both a human and an Agent: only the mentioned Agent replies, no discussion starts
+ // @-mentioning both a human and an Agent: every Agent reads it like a person in the group would; the
+ // mentioned one must answer and the others stay quiet unless they spot a mistake. No discussion starts.
  const mixed=await group('mixed',[first.userId,second.userId,friend.userId]);
  await send(mixed,'mixed-1','@Alice @claude 都看下',[friend.userId,second.userId]);
- assert.deepEqual(prompts.map(item=>item.kind),['claude-code'],'only the mentioned Agent answers');
+ assert.deepEqual(prompts.map(item=>item.kind).sort(),['claude-code','codex'],'every Agent reads the @ message');
+ assert.match(prompts.find(item=>item.kind==='codex').prompt,/最新消息 @ 了其他成员：默认不回复/,'the others are told to stay quiet by default');
  assert.ok(!(await store.getConversation(mixed.conversationId)).brainstorm);
  prompts.length=0;
 

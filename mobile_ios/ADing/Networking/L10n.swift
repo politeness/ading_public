@@ -42,6 +42,13 @@ enum L10n {
         bundle.localizedString(forKey: key, value: nil, table: nil)
     }
 
+    /// Text for a key, or nil when the strings file doesn't have it
+    static func optional(_ key: String) -> String? {
+        let missing = "\u{0}"
+        let text = bundle.localizedString(forKey: key, value: missing, table: nil)
+        return text == missing ? nil : text
+    }
+
     /// Text with arguments; key names match Localizable.strings (e.g. "error.network %@")
     static func format(_ key: String, _ arguments: CVarArg...) -> String {
         String(format: string(key), locale: AppLanguage.saved.locale, arguments: arguments)

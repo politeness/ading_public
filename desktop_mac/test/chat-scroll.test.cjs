@@ -21,6 +21,7 @@ const assert=require('node:assert/strict');
  await writeFile(join(output,'history-before.png'),(await win.webContents.capturePage()).toPNG());
  for(let i=33;i<=37;i++)await append(i);
  await wait();const after=await position();
+ assert.equal(await run(`document.querySelector('#latest-jump').hidden`),false,'arrivals while reading keep latest button available');
  assert.equal(after.anchor,reading.anchor);assert.ok(Math.abs(after.offset-reading.offset)<2);assert.ok(Math.abs(after.top-reading.top)<2,'new messages retain history scroll');
  await writeFile(join(output,'history-after.png'),(await win.webContents.capturePage()).toPNG());
  await run(`window.adingTest.emit('onAgentBusy',{conversationId:'test-paused',agentUserId:'test-c',busy:true,revision:20});window.adingTest.emit('onAgentProgress',{conversationId:'test-paused',agentUserId:'test-c',text:'新进度',revision:21});window.adingTest.emit('onAgentBusy',{conversationId:'test-paused',agentUserId:'test-c',busy:false,revision:22})`);
@@ -30,7 +31,8 @@ const assert=require('node:assert/strict');
  await run(`document.querySelector('[data-conversation-id="test-paused"] .conversation-list-button').click()`);await wait();
  assert.equal((await position()).anchor,reading.anchor,'return to task restores visible message');
  assert.ok(Math.abs((await position()).offset-reading.offset)<2);
- await run(`document.querySelector('#messages').scrollTop=document.querySelector('#messages').scrollHeight`);await wait();
+ await run(`document.querySelector('#latest-jump').click()`);await wait();
+ assert.equal(await run(`document.querySelector('#latest-jump').hidden`),true,'latest button hides after jumping');
  await append(38);await wait();assert.ok((await position()).bottom<2,'scrolling back to bottom resumes following');
  await run(`document.querySelector('#messages').scrollTop=0`);await append(39);await wait();assert.ok((await position()).top<2,'top of history stays at top');
  // Directly exercise anchor restoration when older messages are inserted above the viewport.

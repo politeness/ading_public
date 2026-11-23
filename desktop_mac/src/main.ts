@@ -1,3 +1,4 @@
+import { configureCodexSessionRoot } from "./agents/codex-session-home";
 import { requireConversationWriter, requireConversationController } from "./permissions/conversation-write";
 import { LinkPreviews } from "./links/preview";
 import {SkillFallback} from "./knowledge/skill-fallback";
@@ -34,6 +35,7 @@ import { ProbeSession } from "./agents/probe-session";
 import { AgentRegistry } from "./agents/registry";
 import { prepareCliEnvironment } from "./agents/runtime-environment";
 import { canAgentParticipate, classifyReadiness } from "./agents/readiness";
+import { ReadinessRefresh, type ReadinessEvidence } from "./agents/readiness-refresh";
 import {
   describeError as describeForLog,
   log,
@@ -174,6 +176,7 @@ setClientVersion(app.getVersion());
 //      use the same source.
 const channel = process.env.ADING_CHANNEL ?? appManifest().adingChannel;
 app.setName(channel === "develop" ? "ADing Dev" : "ADing");
+configureCodexSessionRoot(path.join(app.getPath("userData"), "agents", "codex"));
 // Channel and build time come from the package.json bundled into the app; in dev runs the build time is the moment of launch.
 const release = describeRelease(
   {
@@ -1553,16 +1556,26 @@ function describeSeedError(error: unknown): string {
 
 /**
  * Last connectivity check results. On startup, show the short-term cache first, then automatically run checks in parallel once the window is stable;
- * users can also explicitly recheck, and real task failures update the status. Sign-in and installation clear the corresponding cache.
+ * expired statuses are rechecked automatically when idle, and quota/sign-in failures in real tasks also update the status.
+ * Users can still recheck explicitly; sign-in and installation clear the corresponding cache.
  */
-const verifyCache = new Map<
-  AgentKind,
-  { readiness: AgentReadiness; detail?: string; recovery?: AgentRecovery; checkedAt: string }
->();
+const verifyCache = new Map<AgentKind, ReadinessEvidence>();
 const probeSession = new ProbeSession();
 let catalogDiscovery: Awaited<ReturnType<AgentRegistry["discoverAll"]>> | undefined;
 const verifyingAgentCounts = new Map<AgentKind, number>();
 const VERIFY_CACHE_MAX_AGE_MS = 60 * 60_000;
+const readinessRefresh = new ReadinessRefresh({
+  enabled: () => !startingUp && !quitting && !sleepGuard.sleeping,
+  candidates: async () => {
+    await dataReady;
+    return (await store.listKnownAgents()).filter(agent => !agent.remote && agent.kind && agent.enabled !== false)
+      .map(agent => ({ kind: agent.kind!, evidence: verifyCache.get(agent.kind!) }));
+  },
+  busy: kind => registry.isBusy(kind) || (verifyingAgentCounts.get(kind) ?? 0) > 0
+    || scheduler.runtimeSnapshot().agents.some(agent => discoveredByUserId.get(agent.agentUserId)?.kind === kind),
+  verify: kind => verifyAgent(kind),
+  onError: error => { void log("agent-auto-verify-failed", { error: describeForLog(error) }); }
+});
 
 /** MQTT connected: status and messages published by other computers arrive in real time */
 let cloudConnected = false;
@@ -1708,6 +1721,8 @@ function recordAccessDenied(kind: AgentKind, error: string, during: "verify" | "
 function verifyAgent(kind: AgentKind): Promise<AgentStatus[]> {
   return probeSession.single(kind, async () => {
     beginAgentVerification(kind);
+    const evidenceBefore = verifyCache.get(kind);
+    let connectionVerified = false;
     try {
       const result = await probeSession.stable(async () => {
         const epoch = probeSession.epoch;
@@ -1728,12 +1743,16 @@ function verifyAgent(kind: AgentKind): Promise<AgentStatus[]> {
         }
         return { discovery, found, outcome };
       });
+      // A task can report quota/auth failure during a probe. Preserve that
+      // newer evidence instead of overwriting it with the older probe.
+      if (verifyCache.get(kind) !== evidenceBefore) return buildAgentCatalog();
       catalogDiscovery = result.discovery;
       if (!result.found || !result.outcome) {
         verifyCache.delete(kind);
         await log("verify", { kind, result: "missing" });
       } else {
         const { readiness, detail } = classifyReadiness(true, result.outcome);
+        connectionVerified = result.outcome.ok && readiness === "ready";
         verifyCache.set(kind, { readiness, detail: detail ?? result.found.executablePath,
           recovery:result.outcome.ok?undefined:result.outcome.recovery, checkedAt: new Date().toISOString() });
         await log("verify", { kind, readiness, detail: detail?.slice(0, 200) });
@@ -1743,9 +1762,10 @@ function verifyAgent(kind: AgentKind): Promise<AgentStatus[]> {
       return buildAgentCatalog();
     } finally {
       endAgentVerification(kind);
+      broadcast("store:event", { type: "agents" });
       await scheduler.pauseUnavailableAgents(kind);
       await scheduler.resumeReadyAgents();
-      await scheduler.teamAvailabilityChanged();
+      await scheduler.teamAvailabilityChanged(connectionVerified ? kind : undefined);
       memoryNotify?.catchUp(kind);skillFallback?.catchUp(kind);
     }
   });
@@ -2279,7 +2299,7 @@ function registerIpc(): void {
    *      and "don't use sudo, don't touch project files" was just a sentence in the prompt, not a constraint.
    *   2. The executor is nondeterministic: if installation fails halfway, nobody can say what state the machine is in.
    *   3. Circular dependency: on a new machine with only Qoder installed, there's no usable helper to install it.
-   * If needed, "have Xiao C install Qoder" should be a normal conversation task in ADing —
+   * If needed, "have Cody install Qoder" should be a normal conversation task in ADing —
    * that way there's a full conversation record and it can be interrupted any time with the task's pause and stop buttons,
    * rather than a full delegation hidden behind a button.
    */
@@ -2740,7 +2760,7 @@ app.whenReady().then(async () => {
   powerMonitor.on("resume", () => {
     clearTimeout(resumeTimer);
     sleepGuard.resume("resume");
-    // Only continue checks interrupted by sleep. No periodic or idle wake-up checks.
+    // Continue interrupted checks after wake; stale checks wait for the refresh timer.
     resumeTimer = setTimeout(() => { probeSession.resume(); void log("checks-resumed"); }, 1500);
   });
   // DarkWake doesn't unlock the screen or involve user input: in case resume is missed, these two signals show the computer is really awake
@@ -2866,6 +2886,7 @@ app.whenReady().then(async () => {
   await maybeApplySeed().catch(() => undefined);
 
   startingUp = false;
+  if (!HEADLESS) readinessRefresh.start();
 
   if (HEADLESS) {
     await runHeadless();
@@ -2919,6 +2940,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
+  readinessRefresh.stop();
   probeSession.suspend();
   void (async () => {
     try {
@@ -2943,6 +2965,7 @@ app.on("before-quit", (event) => {
     } catch (error) {
       registry.cancelEverything();
       quitting = false;
+      if (!HEADLESS) readinessRefresh.start();
       probeSession.resume();
       await log("shutdown-failed", { error: String(error) });
       dialog.showErrorBox(tm("main.quit.failedTitle"), tm("main.quit.failedMessage", { error: String(error) }));

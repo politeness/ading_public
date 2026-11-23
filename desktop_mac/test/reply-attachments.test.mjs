@@ -104,8 +104,51 @@ try {
     assert.equal(imports, 0, citation);
   }
   const anchored = await prepare('[说明](notes.md#L3) 与 [全文](notes.md)');
-  assert.equal(anchored.attachments?.length, 1, 'fragment stripped before resolving, same file shared');
-  assert.equal(anchored.content, '说明 与 全文');
+  assert.equal(anchored.attachments, undefined, 'section links and ordinary file references are citations');
+  assert.equal(anchored.content, '[说明](notes.md#L3) 与 [全文](notes.md)');
+  // Reproduce ordinary answers citing a skill/release record, both inside and
+  // outside the conversation workspace. No import attempt and no failure notice.
+  for (const name of ['SKILL.md', 'release-result.md']) {
+    await writeFile(path.join(root, name), 'reference only');
+    await writeFile(path.join(outside, name), 'external reference only');
+    for (const destination of [path.join(root, name), path.join(outside, name)]) {
+      for (const link of [`[${name}](<${destination}>)`, `[${name}](${pathToFileURL(destination).href})`]) {
+        imports = 0;
+        assert.deepEqual(localReplyAttachments(link), []);
+        const kept = await prepare(`依据见 ${link}。`);
+        assert.equal(kept.content, `依据见 ${link}。`);
+        assert.equal(kept.attachments, undefined);
+        assert.equal(imports, 0);
+      }
+    }
+  }
+  for (const citation of ['[源码图片](alias.png)', '[下载](notes.md#L3)',
+    `[下载](${pathToFileURL(path.join(root, 'notes.md')).href}#section)`, '[源码](notes.md:3:4)']) {
+    assert.deepEqual(localReplyAttachments(citation), [], citation);
+  }
+  for (const label of ['下载记录', '附件：记录', 'Download record', 'Attachment: record']) {
+    const sent = await prepare(`[${label}](release-result.md)`);
+    assert.equal(sent.attachments?.length, 1);
+    assert.equal(sent.content, label);
+  }
+  for (const language of ['zh-CN', 'en']) {
+    setMainLanguage(language);
+    for (const destination of ['missing.pdf', secret, 'vault']) {
+      imports = 0;
+      const failed = await prepare(`[下载文件](<${destination}>)`);
+      assert.equal(failed.attachments, undefined);
+      assert.equal(imports, 0);
+      assert.match(failed.content, language === 'en' ? /Attachment not sent/ : /附件未发送/);
+    }
+    for (const code of ['ATTACHMENT_TOO_LARGE', 'EACCES']) {
+      const content = '[下载文件](notes.md)';
+      const failed = await prepareReplyAttachments({ content, references: localReplyAttachments(content), workspacePath: root,
+        importAttachment: async () => { throw new Error(code); } });
+      assert.equal(failed.attachments, undefined);
+      assert.match(failed.content, language === 'en' ? /Attachment not sent/ : /附件未发送/);
+    }
+  }
+  setMainLanguage('zh-CN');
   const mixed = await prepare(`[外部](${secret})\n![丢失](missing.png)`);
   assert.equal(mixed.content, `[外部](${secret})\n丢失\n\n附件未发送：missing.png（无法读取或保存文件）。`);
   const many = [];
@@ -138,14 +181,14 @@ try {
     return append(input);
   };
   scheduler = new LocalScheduler({ idleRetryLimit: 0, teamMonitorIntervalMs: 0, store,
-    registry: { runTurn: async () => ({ ok: true, message: raw + "\n[文档](报告.pdf)", steps: [], metrics: { iterations: 1, sideEffects: false } }) },
+    registry: { runTurn: async () => ({ ok: true, message: raw + "\n[下载文档](报告.pdf)", steps: [], metrics: { iterations: 1, sideEffects: false } }) },
     syncer: { ensureSynced: async () => [] }, resolveWorkspace: async () => ({ workspacePath: root, sharesKnowledge: false }),
     resolveDiscovered: () => ({ kind: 'codex', localUuid: 'image-test' }), isAgentReady: () => true,
     broadcast: () => {}, log: async () => {} });
   await scheduler.runAgentTurn(conversation, agent);
   const replies = (await store.listMessages(conversation.conversationId)).filter(m => m.agentReply);
   assert.equal(replies.length, 1);
-  assert.equal(replies[0].content, result.content + "\n文档");
+  assert.equal(replies[0].content, result.content + "\n下载文档");
   assert.equal(schedulerImports, 2);
   assert.equal(attempts, 2);
   assert.deepEqual(attachmentIds[0], attachmentIds[1]);

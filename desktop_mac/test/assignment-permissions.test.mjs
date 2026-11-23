@@ -37,7 +37,10 @@ for (const [mode,allow] of [['unattended',true],['manual',true],['manual',false]
      message=JSON.stringify({control:{action:'plan',work:[{id:'review-source',assignment:'核查原件，保存独立报告，不修改原件',candidates:[worker.userId],dependsOn:[],outputs:['report.txt'],acceptance:'原件不变，报告内容正确',readOnly:true}]}});
     } else if(d.kind==='qoder-cn') {
      const assignment=await scheduler.assignmentFor(conversation.conversationId,worker.userId);
-     if(assignment.phase==='proposal'){
+     // A human's ordinary message now wakes every Agent member; before the
+     // Leader plans, the worker has nothing assigned and skips by default.
+     if(!assignment){message='SKIP';}
+     else if(assignment.phase==='proposal'){
       assert.equal(input.discussionOnly,true);assert.equal(input.fullAccess,false);assert.equal(input.onPermission,undefined);
       message='同意，我按这个方案执行，重点核实原件是否完整，遇到无法核实的内容会如实报告。';
      } else {
@@ -57,7 +60,10 @@ for (const [mode,allow] of [['unattended',true],['manual',true],['manual',false]
   }}
  });
  try {
-  conversation=await store.createConversation({name:'核查原件并保存报告',memberIds:[leader.userId,worker.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+  conversation=await store.createConversation({name:'核查原件并保存报告',memberIds:[leader.userId,worker.userId],leaderId:leader.userId});
+  // charter.mode no longer exists; an earlier Agent reply is what now keeps a
+  // group out of the joint brainstorm, so the Leader plans directly.
+  await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:'earlier-reply',senderId:leader.userId,content:'收到。',agentReply:{turnId:'earlier-reply',inputSeq:0,raw:'收到。'}});
   const me=await store.currentUser();
   const incoming=await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:'start',senderId:me.userId,content:'核查原件并保存报告'});
   await scheduler.dispatch(conversation,incoming);

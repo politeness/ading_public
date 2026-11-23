@@ -68,7 +68,6 @@ try {
  assert.equal(active.size,1);
  // Two members of one group are cancelled together, without touching another task.
  const group=await store.createConversation({name:'多人',memberIds:[agent.userId,worker.userId],leaderId:agent.userId});
- await store.updateConversation(group.conversationId,{charter:{mode:'discussion'}});
  await scheduler.sendUserMessage({conversationId:group.conversationId,clientMessageId:'group',content:'GROUP_LONG_WORK'});
  await until(()=>active.size===3);
  await scheduler.stopConversation(group.conversationId);

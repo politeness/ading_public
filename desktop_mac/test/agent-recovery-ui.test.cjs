@@ -66,6 +66,15 @@ app.on('window-all-closed',()=>{});
  await run(`${button('同步账号')}.click()`);await wait();
  await run(`window.adingTest.emit('onAgentLifecycleProgress',{kind:'qoder',action:'login',text:'Use code WXYZ-1234'});window.adingTest.finishLogin('throw')`);await wait();
  assert.equal(await run(`${row}.textContent.includes('WXYZ-1234')`),false,'failed login clears an expired code');
+ await run(`document.querySelector('#tab-contacts').click()`);
+ const contactLamp=`document.querySelector('.contact-list-item[data-user-id="test-c"] .agent-lamp')`;
+ await until(`${contactLamp}?.classList.contains('g')`);
+ const checksBefore=await run('window.adingTest.verifiedKinds()');
+ await run(`window.adingTest.setAgentFailure('codex','quota exhausted')`);
+ await until(`${contactLamp}?.classList.contains('r')`);
+ await run(`window.adingTest.setAgentFailure('codex','')`);
+ await until(`${contactLamp}?.classList.contains('g')`);
+ assert.deepEqual(await run('window.adingTest.verifiedKinds()'),checksBefore,'background status events repaint contacts without another probe or manual refresh');
  assert.deepEqual(errors,[]);
  win.destroy();
  for(const lang of ['zh-CN','en']) {

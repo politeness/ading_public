@@ -37,6 +37,19 @@ const noResult = parse([init, say("第一段"), say("最后一段")].join("\n"))
 check("falls back to the last assistant text", noResult.message === "最后一段", noResult.message);
 check("still gets the session id when degraded", noResult.threadId === "s-1");
 
+// Direct chats must retain an answer emitted before a later tool call/result.
+const translation='译文：第二次提交已通过，文件仍待上传。';
+const attachment='附件已经准备好。';
+const multi=[init,say(translation),J({type:'assistant',message:{content:[{type:'thinking',thinking:'private reasoning'}]}}),tool('Read',{file_path:'example.txt'}),say(attachment),done(attachment)];
+check('Direct chat keeps the text before tools, final body not duplicated',parse(multi.join('\n'),undefined,true).message===translation+'\n\n'+attachment);
+const retained=multi.map(m.retainStreamLine).filter(Boolean).join('\n');
+check('Real process retention pipeline keeps earlier text and leaks neither thinking nor tool arguments',parse(retained,undefined,true).message===translation+'\n\n'+attachment && !retained.includes('private reasoning') && !retained.includes('example.txt'));
+check('When the result restates all text of the turn, only one copy is kept',parse([...multi.slice(0,-1),done(translation+'\n\n'+attachment)].join('\n'),undefined,true).message===translation+'\n\n'+attachment);
+check('Coordination protocol still takes only the final reply',parse(retained).message===attachment);
+check('Without a result event, direct chat still keeps every emitted segment',parse([say(translation),say(attachment)].join('\n'),undefined,true).message===translation+'\n\n'+attachment);
+check('A repeated result is not appended twice',parse([say(translation),done(translation)].join('\n'),undefined,true).message===translation);
+check('A failed direct chat keeps the earlier reply without mixing in the error echo',parse([say(translation),say('quota limit'),J({type:'result',is_error:true,result:'quota limit'})].join('\n'),undefined,true).message===translation);
+
 // ---- CLI reports its own error ----
 const errored = parse([init, J({ type: "result", subtype: "error", is_error: true, result: "credit balance too low", session_id: "s-1" })].join("\n"));
 check("recognizes is_error", errored.error === "credit balance too low", errored);

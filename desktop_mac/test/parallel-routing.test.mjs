@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {LocalStore} from '../dist/store/local.js';import {LocalScheduler} from '../dist/orchestration/local-scheduler.js';
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-parallel-routing-')),store=new LocalStore(dir);await store.init();
@@ -6,7 +7,7 @@ const agents=await store.syncDiscoveredAgents(ds),codex=agents.find(a=>a.kind===
 const calls=[],schedulers=[];
 const make=extra=>{const scheduler=new LocalScheduler({store,idleRetryLimit:0,teamMonitorIntervalMs:0,syncer:{ensureSynced:async()=>[]},resolveWorkspace:async()=>({workspacePath:dir,sharesKnowledge:false}),resolveDiscovered:id=>ds.find(d=>agents.find(a=>a.kind===d.kind)?.userId===id),isAgentReady:()=>true,broadcast:()=>{},log:async()=>{},requestPermission:async()=>false,registry:{adapterFor:kind=>({supportsParallelWork:['codex','claude-code','qoder','qoder-cn','qwen-code','kiro','copilot','antigravity'].includes(kind)}),cancel:()=>true,runTurn:async(_a,input)=>{calls.push({...input,agentKind:_a.kind});input.onRuntimeConfig?.({model:'gpt-fixture',reasoningEffort:'low',serviceTier:'priority'});return {ok:true,message:'SKIP',threadId:'new-thread',steps:[],metrics:{iterations:0,sideEffects:false}};}},...extra});schedulers.push(scheduler);return scheduler;};
 try{
- const direct=await store.createConversation({name:'direct',memberIds:[codex.userId],leaderId:codex.userId});
+ const direct=await readyGroup(store,{name:'direct',memberIds:[codex.userId],leaderId:codex.userId});
  await store.appendMessage({conversationId:direct.conversationId,clientMessageId:'user',senderId:me.userId,content:'处理独立文件'});
  await store.saveAgentSession({conversationId:direct.conversationId,agentUserId:codex.userId,providerThreadId:'old-thread'});
  await make().runAgentTurn(direct,codex);
@@ -24,7 +25,7 @@ try{
  const pinned=await store.getAgentSession(direct.conversationId,codex.userId);assert.deepEqual([pinned.runtimeConfig.model,pinned.runtimeConfig.reasoningEffort,pinned.runtimeConfig.serviceTier],['gpt-fixture','low','priority'],'effective Codex configuration is pinned with the task session');assert.equal(pinned.parallelToolsVersion,8);
  for(const kind of ['claude-code','qoder','qoder-cn']){
  const agent=agents.find(a=>a.kind===kind);
- const conversation=await store.createConversation({name:kind+' direct',memberIds:[agent.userId],leaderId:agent.userId});
+ const conversation=await readyGroup(store,{name:kind+' direct',memberIds:[agent.userId],leaderId:agent.userId});
  await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:kind+'-user',senderId:me.userId,content:'处理独立文件'});
  await make().runAgentTurn(conversation,agent);
  assert.equal(calls.at(-1).parallelWork?.allowSplit,true,kind+' receives the shared subtask channel');
@@ -38,7 +39,7 @@ try{
  await make().runAgentTurn(direct,codex);
  assert.equal(calls.at(-1).parallelWork.planBeforeExecution,false,'progress alone does not repeat planning');
  for(const agent of agents.filter(a=>a.kind!=='codex')){
- const conversation=await store.createConversation({name:agent.kind+' group',memberIds:[agent.userId,codex.userId],leaderId:codex.userId,charter:{mode:'execution'}});
+ const conversation=await readyGroup(store,{name:agent.kind+' group',memberIds:[agent.userId,codex.userId],leaderId:codex.userId});
  await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:agent.kind+'-assignment',senderId:codex.userId,type:'TASK',content:'当前工作',coordination:{id:agent.kind+'-assignment',assigneeId:agent.userId,phase:'accepted',brief:'处理独立文件'}});
  await make().runAgentTurn(conversation,agent);
  const groupInput=calls.find(c=>c.parallelWork?.key===`${conversation.conversationId}:${agent.userId}`);
@@ -47,22 +48,25 @@ try{
  assert.equal(groupInput.parallelWork.sessionBudget,11,agent.kind+' group execution receives ten child contexts');
  assert.equal(groupInput.parallelWork.planBeforeExecution,false,agent.kind+' group assignment reuses the Leader decomposition');
  }
- const group=await store.createConversation({name:'group',memberIds:[codex.userId,peer.userId],leaderId:peer.userId,charter:{mode:'execution'}});
+ const group=await readyGroup(store,{name:'group',memberIds:[codex.userId,peer.userId],leaderId:peer.userId});
  await store.appendMessage({conversationId:group.conversationId,clientMessageId:'assignment',senderId:peer.userId,type:'TASK',content:'当前工作',coordination:{id:'assignment',assigneeId:codex.userId,phase:'accepted',brief:'处理独立文件'}});
  await make().runAgentTurn(group,codex);
  const b=calls.find(c=>c.parallelWork?.key===`${group.conversationId}:${codex.userId}`);assert.ok(b,'group execution receives the shared execution policy');assert.equal(b.parallelWork.allowSplit,true,'accepted group executor receives the same subtask channel');assert.equal(b.parallelWork.sessionBudget,11);assert.equal(b.parallelWork.planBeforeExecution,false);assert.equal(b.parallelWork.key,`${group.conversationId}:${codex.userId}`);assert.notEqual(a.parallelWork.key,b.parallelWork.key,'same Agent different tasks keep independent execution state');
- const discussion=await store.createConversation({name:'discussion',memberIds:[codex.userId,peer.userId],leaderId:peer.userId,charter:{mode:'discussion'}});
- await make().runAgentTurn(discussion,codex);assert.equal(calls.at(-1).parallelWork,undefined,'discussion cannot start work');
- const replay=await store.createConversation({name:'replay-without-provider-thread',memberIds:[codex.userId],leaderId:codex.userId});
+ const discussion=await readyGroup(store,{name:'discussion',memberIds:[codex.userId,peer.userId],leaderId:peer.userId});
+ // Background turns (e.g. a Leader brainstorm, which any multi-Agent group without
+ // replies may now start) can land in calls after ours, so pick our own call by name.
+ const turnIn=(name,kind='codex',from=0)=>calls.slice(from).filter(c=>c.agentKind===kind&&c.prompt?.includes('会话名称：'+name+'\n')).at(-1);
+ let mark=calls.length;await make().runAgentTurn(discussion,codex);assert.equal(turnIn('discussion','codex',mark).parallelWork,undefined,'a non-Leader without an accepted assignment cannot start work');
+ const replay=await readyGroup(store,{name:'replay-without-provider-thread',memberIds:[codex.userId],leaderId:codex.userId});
  const original=await store.appendMessage({conversationId:replay.conversationId,clientMessageId:'replay-user',senderId:me.userId,content:'必须继承的完整讨论结论'});
  await store.markProcessed(replay.conversationId,codex.userId,original.seq);
- await make().runAgentTurn(await store.getConversation(replay.conversationId),codex);
- assert.match(calls.at(-1).prompt,/必须继承的完整讨论结论/,'a watermark alone cannot hide context when no provider thread exists');
+ mark=calls.length;await make().runAgentTurn(await store.getConversation(replay.conversationId),codex);
+ assert.match(calls.slice(mark).find(c=>c.parallelWork?.key===`${replay.conversationId}:${codex.userId}`)?.prompt??'',/必须继承的完整讨论结论/,'a watermark alone cannot hide context when no provider thread exists');
  // Negotiating and then executing is one conversation, not two. A turn without the
  // child-task channel used to leave the contract version unset, which the next
  // execution turn read as "written by an older build" and rebuilt the thread - so a
  // task that alternates phases burned a fresh top-level session every round.
- const cycling=await store.createConversation({name:'cycling',memberIds:[codex.userId,peer.userId],leaderId:peer.userId,charter:{mode:'execution'}});
+ const cycling=await readyGroup(store,{name:'cycling',memberIds:[codex.userId,peer.userId],leaderId:peer.userId});
  const accept=async id=>store.appendMessage({conversationId:cycling.conversationId,clientMessageId:id,senderId:peer.userId,type:'TASK',content:'当前工作',coordination:{id:'cycle',assigneeId:codex.userId,phase:'accepted',brief:'处理独立文件'}});
  const codexTurn=async()=>{const mark=calls.length;await make().runAgentTurn(await store.getConversation(cycling.conversationId),codex);
   const mine=calls.slice(mark).filter(c=>c.agentKind==='codex');assert.ok(mine.length,'the scheduled turn reached the provider');return mine[0];};

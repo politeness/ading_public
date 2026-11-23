@@ -49,7 +49,7 @@ public class NodeService {
         TerminalEntity terminal = new TerminalEntity();
         terminal.setTerminalId(idGenerator.terminalId());
         terminal.setType(type);
-        terminal.setName(name == null || name.isBlank() ? "My Computer" : name);
+        terminal.setName(name == null || name.isBlank() ? "我的电脑" : name);
         terminal.setFingerprint(fingerprint);
         terminal.setStatus(TerminalEntity.STATUS_OFFLINE);
         terminal.setOwner(ownerUserId);

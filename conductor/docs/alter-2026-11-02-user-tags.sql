@@ -1,5 +1,5 @@
 -- Account tags: the mainland add-friend list (formerly env ADING_REGION_EXEMPT_USERS) and fixed pre-release gray recipients become tags.
--- New table only — old conductor versions don't know it and are unaffected. Back up first. Safe to rerun.
+-- New table only — old conductor versions do not know it and are unaffected. Back up first. Safe to rerun.
 -- Only tag accounts that actually exist in the database: dev and production databases have different accounts.
 
 CREATE TABLE IF NOT EXISTS `user_tags` (
@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS `user_tags` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Account tags, allowlist-style capabilities all hang off this';
 
 INSERT IGNORE INTO user_tags (user_id, tag, remark)
-SELECT user_id, 'PRE_GRAY', 'Fixed pre-release recipient' FROM users
+SELECT user_id, 'PRE_GRAY', '固定预发接收人' FROM users
  WHERE user_id IN ('<user_id>');
 
 INSERT IGNORE INTO user_tags (user_id, tag, remark)
-SELECT user_id, 'MAINLAND_ADD_FRIEND', 'Migrated from ADING_REGION_EXEMPT_USERS' FROM users
+SELECT user_id, 'MAINLAND_ADD_FRIEND', '迁自 ADING_REGION_EXEMPT_USERS' FROM users
  WHERE user_id IN ('<user_id>');

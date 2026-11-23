@@ -22,5 +22,15 @@ export function codexChildEnvironment(
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
   for (const key of CODEX_HOST_CONTEXT_ENV_KEYS) delete environment[key];
+  // A development host may be launched by an ADing Codex turn. Configuration
+  // reads and login still address the native home, not the outer private home.
+  if (source.ADING_CODEX_NATIVE_HOME && source.ADING_CODEX_SESSION_HOME === source.CODEX_HOME) {
+    environment.CODEX_HOME = source.ADING_CODEX_NATIVE_HOME;
+    if (source.ADING_CODEX_NATIVE_SQLITE_HOME) environment.CODEX_SQLITE_HOME = source.ADING_CODEX_NATIVE_SQLITE_HOME;
+    else delete environment.CODEX_SQLITE_HOME;
+  }
+  delete environment.ADING_CODEX_SESSION_HOME;
+  delete environment.ADING_CODEX_NATIVE_HOME;
+  delete environment.ADING_CODEX_NATIVE_SQLITE_HOME;
   return environment;
 }

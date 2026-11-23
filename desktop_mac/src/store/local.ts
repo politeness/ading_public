@@ -777,7 +777,7 @@ export class LocalStore implements Store {
         paused: false
       })),
       workspacePath: input.workspacePath,
-      charter: unique.length === 2 && input.charter ? { ...input.charter, mode: undefined } : input.charter,
+      charter: input.charter,
       seedKey: input.seedKey,
       status: "ACTIVE",
       paused: false,
@@ -1338,6 +1338,10 @@ export class LocalStore implements Store {
     agentUserId: string
   ): Promise<AgentSessionRef | null> {
     return this.agentSessions[sessionKey(conversationId, agentUserId)] ?? null;
+  }
+
+  async listAgentSessions(conversationId: string): Promise<AgentSessionRef[]> {
+    return Object.values(this.agentSessions).filter((session) => session.conversationId === conversationId);
   }
 
   async saveAgentSession(session: AgentSessionRef): Promise<void> {

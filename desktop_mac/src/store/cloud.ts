@@ -187,7 +187,7 @@ type RemoteAgentState = Record<string, { contact: boolean; displayName: string; 
 const API = "/api/v1";
 /** Cloud error codes meaning "it's already like that": treated as success on replay */
 const ALREADY_DONE = new Set(["CONVERSATION_005", "CONVERSATION_006"]);
-/** UI copy for cloud error codes; unlisted ones use the cloud's original Chinese text directly */
+/** Context-specific UI copy for some cloud error codes; others use the generic per-code text from the request layer */
 const ERROR_TEXT: Record<string, MainMessageKey> = {
   FRIEND_001: "main.friends.queryBlank",
   FRIEND_002: "main.friends.userMissing",
@@ -601,6 +601,7 @@ export class CloudStore implements Store {
     return this.cache.getAgentSession(conversationId, agentUserId);
   }
   saveAgentSession(session: AgentSessionRef): Promise<void> { return this.cache.saveAgentSession(session); }
+  listAgentSessions(conversationId: string): Promise<AgentSessionRef[]> { return this.cache.listAgentSessions(conversationId); }
 
   listSkills(refs?: ScopeRef[]): Promise<Skill[]> { return this.cache.listSkills(refs); }
   knowledgeRoot(): Promise<string> { return this.cache.knowledgeRoot(); }
@@ -812,8 +813,7 @@ export class CloudStore implements Store {
     if (!dirty.has("permanent") && !!local.permanent !== !!remote.extra?.permanent) patch.permanent = !!remote.extra?.permanent;
     if (!dirty.has("charter")) {
       const charter = remote.extra?.charter;
-      // The internal collaboration strategy belongs only to the leading Agent's host computer; don't follow other computers' changes
-      if (charter && !sameCharterText(local.charter, charter)) patch.charter = { ...charter, mode: local.charter?.mode };
+      if (charter && !sameCharterText(local.charter, charter)) patch.charter = charter;
       // Missing in the cloud but present locally: the cloud was wholesale overwritten by an old version and lost it (conversations saved by the UI always have a charter); upload it back
       else if (!charter && charterHasText(local.charter)) await this.markConversation(remote.conversationId, ["charter"]);
     }
@@ -1642,12 +1642,14 @@ function conversationExtra(conversation: Conversation): ConversationExtra {
   };
 }
 
-/** On the cloud extra, replace only locally changed fields; keep the collaboration mode written by the leading computer if absent locally */
+/** On the cloud extra, replace only locally changed fields. Older versions keep an internal `mode` in the charter;
+ * this version never writes it, so pass the cloud's value through untouched for computers that still read it. */
 function mergedExtra(conversation: Conversation, remote: ConversationExtra | undefined, changed: (field: ConversationField) => boolean): ConversationExtra {
   const local = conversationExtra(conversation);
   const merged: ConversationExtra = { ...remote };
   for (const field of CONVERSATION_EXTRA_FIELDS) if (changed(field)) Object.assign(merged, { [field]: local[field] });
-  if (changed("charter") && local.charter && !local.charter.mode && remote?.charter?.mode) merged.charter = { ...local.charter, mode: remote.charter.mode };
+  const legacyMode = (remote?.charter as { mode?: unknown } | undefined)?.mode;
+  if (changed("charter") && local.charter && legacyMode !== undefined) merged.charter = { ...local.charter, mode: legacyMode } as Conversation["charter"];
   return merged;
 }
 

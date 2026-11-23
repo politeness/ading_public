@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { tm } from "../i18n";
+import { cloudErrorText, tm } from "../i18n";
 import { describeError } from "../orchestration/diagnostics";
 import { p } from "../prompt-language";
 import type { ReleaseChannel } from "../shared/release";
@@ -388,12 +388,10 @@ export class AccountSession {
       return { kind: "server", message: SERVER_MESSAGE(), status };
     }
     if (payload.code === "OK") return { kind: "ok", data: payload.data };
-    // The server returns Chinese text; this one is phrased in the UI language
+    // The server message is English only; show the UI-language text for the code, never the raw server text
     const message = payload.code === REGION_BLOCKED
       ? tm("svc.account.regionUnavailable")
-      : typeof payload.message === "string" && payload.message.trim()
-        ? payload.message
-        : tm("svc.account.requestFailed");
+      : cloudErrorText(payload.code) ?? tm("svc.account.requestFailed");
     return {
       kind: "rejected",
       message,

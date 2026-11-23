@@ -326,6 +326,11 @@ export class AgentRegistry {
     }
   }
 
+  isBusy(kind: AgentKind): boolean {
+    return this.installFlights.has(kind) || this.loginFlights.has(kind)
+      || (this.adapterFor(kind)?.busyIds().length ?? 0) > 0;
+  }
+
   private async requireDiscovered(kind: AgentKind): Promise<DiscoveredAgent> {
     const discovered = (await this.discoverAll()).agents.find(
       (agent) => agent.kind === kind

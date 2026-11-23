@@ -22,6 +22,9 @@ assert.deepEqual(selected,{anchorSeq:6,excludedSeqs:[1]},'retain attachments ref
 await assert.rejects(()=>selectGroupContext(messages,humans,conversation,async()=>({ok:true,text:'{"excludeSeqs":[6]}'})),/invalid/,'latest request cannot be excluded');
 await assert.rejects(()=>selectGroupContext(messages,humans,conversation,async()=>({ok:true,text:'{"excludeSeqs":["1"]}'})),/invalid/);
 await assert.rejects(()=>selectGroupContext(messages,humans,conversation,async()=>({ok:false,text:'unavailable'})),/unavailable/);
+// Classifier output may quote the conversation: failures report only its length, never the text.
+const leaked='secret conversation excerpt';
+for(const result of [{ok:false,text:leaked},{ok:true,text:leaked}]) await assert.rejects(()=>selectGroupContext(messages,humans,conversation,async()=>result),error=>!String(error).includes(leaked)&&!String(error).includes('secret')&&new RegExp(`\\(${leaked.length} chars\\)`).test(String(error)));
 assert.equal(groupContextNeedsReset(selected,{providerThreadId:'old',messageSyncedSeq:4}),true);
 assert.equal(groupContextNeedsReset(selected,{providerThreadId:'clean',messageSyncedSeq:4,groupContext:selected}),false);
 assert.equal(groupContextNeedsReset(selected,{providerThreadId:'not-yet-delivered',messageSyncedSeq:0}),false);
@@ -43,7 +46,7 @@ try {
  const discovered=['codex','claude-code'].map(kind=>({kind,localUuid:kind,executablePath:'/mock',version:'test'}));
  const agents=await store.syncDiscoveredAgents(discovered),[leader,worker]=discovered.map(d=>agents.find(a=>a.kind===d.kind));
  const me=await store.currentUser();
- const conv=await store.createConversation({name:'群聊筛选',memberIds:[leader.userId,worker.userId],leaderId:leader.userId,charter:{mode:'discussion'}});
+ const conv=await store.createConversation({name:'群聊筛选',memberIds:[leader.userId,worker.userId],leaderId:leader.userId});
  const append=async(content,extra={})=>store.appendMessage({conversationId:conv.conversationId,clientMessageId:Math.random().toString(),senderId:me.userId,type:'USER',content,...extra});
  const old=await append('无关旅游：明天去杭州');
  await append('没有确认，不得推送 GitHub');

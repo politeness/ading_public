@@ -13,7 +13,7 @@ import { retryableStoreError, storeFailureReason } from "./store-retry";
 import { workLaneStore } from "./work-lane-store";
 import { WorkPlanner } from "./work-plan";
 import { decodeTeamRelay, encodeTeamRelay, isTeamRelay, teamStore, type BrainstormRelayRequest } from "./team";
-import { BrainstormCoordinator, brainstorming, brainstormInstruction } from "./brainstorm";
+import { BrainstormCoordinator, brainstorming, brainstormInstruction, leaderUnavailable } from "./brainstorm";
 import type { AgentRegistry } from "../agents/registry";
 import type { CaptureContext } from "../skills/capture";
 import type { SkillSyncer } from "../skills/sync";
@@ -30,6 +30,7 @@ import { ExecutionGate, type ExecutionLease } from "./execution-gate";
 import { memoryScopesFor, type WorkspaceResolution } from "./workspace";
 import { p } from "../prompt-language";
 import { localReplyAttachments, prepareReplyAttachments } from "./reply-attachments";
+import { humanMemberIds, isHumanInput, latestUnansweredInput } from "./human-input";
 
 /** Lists attachment names only (for discussion summaries and auto-naming), without downloading files */
 function attachmentNote(message: Message): string {
@@ -148,9 +149,8 @@ export class LocalScheduler {
     const discovered = this.deps.resolveDiscovered(agent.userId);
     if (!discovered) return undefined;
     const messages = await this.deps.store.listMessages(conversation.conversationId, {limit:1000});
-    const humans = new Set<string>();
-    for (const member of conversation.members) if (!(await this.deps.store.getUser(member.userId))?.isAgent) humans.add(member.userId);
-    const anchor = [...messages].reverse().find(m => humans.has(m.senderId) && m.type === "USER" && !m.internal && !m.failed);
+    const humans = await humanMemberIds(this.deps.store, conversation);
+    const anchor = [...messages].reverse().find(m => isHumanInput(m, humans) && m.type === "USER" && !m.internal && !m.failed);
     if (!anchor) return undefined;
     const key = createHash("sha256").update(JSON.stringify([conversation.conversationId, agent.userId, anchor.messageId, anchor.content, conversation.charter])).digest("hex");
     let pending = this.groupContextCache.get(key);
@@ -423,7 +423,7 @@ export class LocalScheduler {
     this.teamChecks.add(conversationId);
     try {
       let conversation = await this.deps.store.getConversation(conversationId);
-      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || conversation.charter?.mode !== "execution" || brainstorming(conversation)) return;
+      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || brainstorming(conversation) || !(await this.hasOpenWork(conversation))) return;
       await this.fillWork(conversationId);
       conversation = await this.deps.store.getConversation(conversationId);
       if (!conversation || conversation.paused || conversation.status !== "ACTIVE") return;
@@ -512,7 +512,7 @@ export class LocalScheduler {
     this.idleChecks.add(conversationId);
     try {
       let conversation = await this.deps.store.getConversation(conversationId);
-      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || conversation.charter?.mode !== "execution") return;
+      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || (!conversation.workPlan?.length && !(await this.hasOpenWork(conversation)))) return;
       if ([...this.workLanes.values()].some(l=>l.conversationId===conversationId) || [...this.inboxes.values()].some(i=>i.conversationId===conversationId) || [...this.runningTurns.values()].includes(conversationId) || [...this.pendingTurns.values()].some(p=>p.has(conversationId)) || [...this.pendingReports.values()].some(p=>p.some(r=>r.conversationId===conversationId))) return;
       const member = conversation.members.find(m=>m.role==="LEADER");
       const leader = member && await this.deps.store.getUser(member.userId);
@@ -522,12 +522,32 @@ export class LocalScheduler {
       const messages = await this.deps.store.listMessages(conversationId,{limit:1000});
       // Work held by an available Agent on another computer is in progress there.
       if (await this.remoteWorkInFlight(messages)) return;
-      const humanIds = new Set<string>();
-      for (const m of conversation.members) if (!(await this.deps.store.getUser(m.userId))?.isAgent) humanIds.add(m.userId);
+      const humanIds = await humanMemberIds(this.deps.store, conversation);
       // Chatter, SKIP, reports and new plan ids cannot reset the retry budget.
-      const inputSeq = messages.filter(m=>humanIds.has(m.senderId) && m.type==="USER").at(-1)?.seq ?? 0;
+      const inputSeq = messages.filter(m=>isHumanInput(m,humanIds) && m.type==="USER").at(-1)?.seq ?? 0;
       const resultSeq = messages.filter(m=>m.coordination?.phase==="result" && !m.failed).at(-1)?.seq ?? 0;
       const done = (conversation.workPlan??[]).filter(w=>w.status==="done").map(w=>w.id).sort();
+      const decision = messages.filter(m=>m.senderId===leader.userId && m.agentReply && !m.failed && !m.report && m.agentReply.lane!=="inbox").at(-1);
+      const assignments = new Map<string, NonNullable<Message["coordination"]>>();
+      for (const message of messages) if (message.coordination) assignments.set(message.coordination.id,message.coordination);
+      const openAssignment = [...assignments.values()].some(assignment=>["proposal","accepted"].includes(assignment.phase) &&
+        !conversation!.workPlan?.some(work=>work.assignmentId===assignment.id && work.status==="done"));
+      // Every item is done only through a passing review. Later chat in the same group is answered as chat,
+      // not treated as an unfinished delivery to chase; a new request that needs work adds new plan items.
+      if (done.length && done.length===conversation.workPlan?.length && !openAssignment &&
+          resultSeq <= (decision?.agentReply?.inputSeq ?? 0)) {
+        // Recheck after asynchronous reads. Never disengage new input/work that
+        // arrived while checking completion, and never persist a user pause.
+        const fresh = await this.deps.store.getConversation(conversationId);
+        if (!fresh || fresh.paused || fresh.status!=="ACTIVE" || fresh.members.find(m=>m.role==="LEADER")?.userId!==leader.userId ||
+            fresh.lastSeq!==messages.at(-1)?.seq || JSON.stringify(fresh.workPlan)!==JSON.stringify(conversation.workPlan)) return;
+        if ([...this.workLanes.values()].some(l=>l.conversationId===conversationId) || [...this.inboxes.values()].some(i=>i.conversationId===conversationId) ||
+            [...this.runningTurns.values()].includes(conversationId) || [...this.pendingTurns.values()].some(p=>p.has(conversationId)) ||
+            [...this.pendingReports.values()].some(p=>p.some(r=>r.conversationId===conversationId))) return;
+        this.engagedConversations.delete(conversationId);
+        await this.deps.log("conversation-work-completed",{conversation:conversationId,work:done,inputSeq:decision?.agentReply?.inputSeq});
+        return;
+      }
       const fingerprint = JSON.stringify([inputSeq,resultSeq,done]);
       const attempts = conversation.followUp?.fingerprint === fingerprint ? conversation.followUp.attempts : 0;
       // The user decided not to set "stop after N follow-ups": by default keep following up until the task completes, pauses, or stops.
@@ -572,17 +592,12 @@ export class LocalScheduler {
       store:deps.store, ready:agent=>this.present(agent),
       active:conversationId=>!this.shuttingDown && this.engagedConversations.has(conversationId),
       run:(conversation,agent)=>agent.remote ? this.relayBrainstormTurn(conversation,agent) : this.runBrainstormTurn(conversation,agent), log:deps.log,
-      proceed:async(conversation,mode,control)=> {
-        if (mode==="stop") { await this.stopConversation(conversation.conversationId); return; }
-        const fresh=await deps.store.updateConversation(conversation.conversationId,{charter:{...conversation.charter,mode}});
-        if (mode==="execution") {
-          if (control?.action==="plan" && control.work?.length) {
-            await this.planner.merge(conversation.conversationId,control.work);
-            await this.fillWork(conversation.conversationId);
-            return;
-          }
-          const leader=await deps.store.getUser(conversation.brainstorm!.leaderId);
-          if (leader && this.engagedConversations.has(conversation.conversationId)) void this.runAgentTurn(fresh,leader).catch(error=>deps.log("brainstorm-execution-failed",{conversation:conversation.conversationId,error:String(error)}));
+      proceed:async(conversation,control)=> {
+        if (control.action==="stop") { await this.stopConversation(conversation.conversationId); return; }
+        // Anything else just ends the joint discussion; the group then carries on as a normal chat.
+        if (control.action==="plan" && control.work?.length) {
+          await this.planner.merge(conversation.conversationId,control.work);
+          await this.fillWork(conversation.conversationId);
         }
       }
     });
@@ -748,7 +763,7 @@ export class LocalScheduler {
     if (this.shuttingDown || conversation.paused || conversation.status !== "ACTIVE" || message.report) return [];
     // Agreement is already durable and automatically starts the worker. It needs no extra
     // leader round trip; questions, rejections and results still wake the leader immediately.
-    if (conversation.type === "GROUP" && conversation.charter?.mode === "execution" && message.coordination?.phase === "accepted") return [];
+    if (conversation.type === "GROUP" && message.coordination?.phase === "accepted") return [];
 
     const sender = await this.deps.store.getUser(message.senderId);
     if (!sender) return [];
@@ -760,7 +775,7 @@ export class LocalScheduler {
     for (const member of conversation.members) {
       // Agents on other computers aren't driven locally: the message has already synced there, equivalent to typing on that computer, and that computer's scheduler dispatches it
       const user = await this.deps.store.getUser(member.userId);
-      if (!user || !owesMessage(conversation, member, user, message)) continue;
+      if (!user || !owesMessage(conversation, member, user, message, sender)) continue;
       // User messages re-triggered after restart: Agents that already processed them don't rerun; only those not yet done are triggered
       if (!sender.isAgent && (member.lastProcessedSeq ?? 0) >= message.seq) continue;
       if (!this.deps.isAgentReady(user)) {
@@ -812,8 +827,6 @@ export class LocalScheduler {
     const charterText = (charter?: Conversation["charter"]) => JSON.stringify([charter?.goal ?? "", charter?.instructions ?? ""]);
     const before = charterText(current?.charter);
     if (patch.name !== undefined) patch = { ...patch, autoTitle: false };
-    // The UI only edits goals and instructions; internal collaboration policy is controlled only by the leader.
-    if (patch.charter) patch = { ...patch, charter: { ...patch.charter, mode: current?.charter?.mode } };
     const conversation = await this.deps.store.updateConversation(conversationId, patch);
     if (patch.charter && charterText(conversation.charter) !== before) {
       const owner = await this.deps.store.currentUser();
@@ -873,6 +886,20 @@ export class LocalScheduler {
     }
   }
 
+  /** Declared work still running or waiting for review: what team monitoring and idle follow-ups exist for. A plain chat has none. */
+  private async hasOpenWork(conversation: Conversation): Promise<boolean> {
+    if (conversation.workPlan?.some(work => work.status !== "done")) return true;
+    const latest = new Map<string, NonNullable<Message["coordination"]>>();
+    for (const message of await this.deps.store.listMessages(conversation.conversationId, {limit:1000})) if (message.coordination) latest.set(message.coordination.id, message.coordination);
+    return [...latest.values()].some(assignment => ["proposal", "accepted"].includes(assignment.phase) &&
+      !conversation.workPlan?.some(work => work.assignmentId === assignment.id && work.status === "done"));
+  }
+
+  /** The joint plan discussion only opens a group: once an Agent has spoken, the group is already under way. */
+  private async agentsHaveSpoken(conversation: Conversation): Promise<boolean> {
+    return (await this.deps.store.listMessages(conversation.conversationId, {limit:1000})).some(message => !!message.agentReply && !message.failed);
+  }
+
   private async soloAgent(conversation: Conversation): Promise<boolean> {
     const members=await Promise.all(conversation.members.filter(m=>m.role!=="OBSERVER").map(m=>this.deps.store.getUser(m.userId)));
     return members.filter(m=>m?.isAgent).length===1;
@@ -883,7 +910,7 @@ export class LocalScheduler {
     if (this.shuttingDown || conversation.paused || conversation.status!=="ACTIVE" || conversation.type!=="GROUP") return false;
     // @ never starts or interrupts a discussion: only the mentioned Agent answers it, and a discussion under way continues.
     if (await this.directedInput(conversation) && !(resume && brainstorming(conversation))) return false;
-    if (!brainstorming(conversation) && (conversation.brainstorm || conversation.charter?.mode || conversation.workPlan?.length || await this.soloAgent(conversation))) return false;
+    if (!brainstorming(conversation) && (conversation.brainstorm || conversation.workPlan?.length || await this.soloAgent(conversation) || await this.agentsHaveSpoken(conversation))) return false;
     this.engagedConversations.add(conversation.conversationId);
     this.brainstorm.start(conversation.conversationId);
     return true;
@@ -946,7 +973,7 @@ export class LocalScheduler {
         // allowing discussion to mutate user data.
         discussionOnly:!probe && !readOnlySynthesis && !readOnlyEvidence,communicationOnly:!probe && !readOnlySynthesis && !readOnlyEvidence,fullAccess:probe,isolateMemory:await this.memoryIsolated(conversation,agent),
         runtimeConfig,appRuntimeConfig:agent.modelConfig,onRuntimeConfig:snapshot=>{runtimeConfig=snapshot;},
-        // The user decided not to time-limit Agents: no whole-turn timeout, keeping only the process-level 10-minute no-output hang fallback.
+        // The user decided not to time-limit Agents: no whole-turn timeout, keeping only the process-level 30-minute no-output hang fallback.
         // brainstormTimeoutMs is only for test injection.
         timeoutMs:this.deps.brainstormTimeoutMs,
         onPermission:probe && this.deps.requestPermission ? async request=> {
@@ -972,9 +999,8 @@ export class LocalScheduler {
       const question=agent.userId===state.leaderId && parsed.control?.action==="brainstorm" && parsed.control.decision==="ask" ? parsed.control.reason : undefined;
       const content=parsed.visible || question || raw;
       const latest=await this.deps.store.listMessages(conversation.conversationId,{afterSeq:inputSeq,limit:1000});
-      const humanIds=new Set<string>();
-      for (const m of conversation.members) if (!(await this.deps.store.getUser(m.userId))?.isAgent) humanIds.add(m.userId);
-      const newerInput=latest.some(m=>humanIds.has(m.senderId));
+      const humanIds=await humanMemberIds(this.deps.store,conversation);
+      const newerInput=latest.some(m=>isHumanInput(m,humanIds));
       let saved:Message|undefined;
       if (raw.trim()) saved=await this.persistAgentReply({conversationId:conversation.conversationId,clientMessageId:turnId,senderId:agent.userId,
         content,internal:skip || (!!parsed.control && !parsed.visible && !question),steps:outcome.steps,
@@ -1112,6 +1138,7 @@ export class LocalScheduler {
         prompt:await this.addressOwner(conversation,prompt),split:await this.addressOwnerSplit(conversation,split),
         ...this.knowledgeInput(conversation,agent,resolution),
         threadId:undefined,workspacePath:resolution.workspacePath,
+        preserveReplyText:conversation.type === "DIRECT",
         discussionOnly:true,communicationOnly:true,fullAccess:false,isolateMemory:await this.memoryIsolated(conversation,agent),signal:lease.signal,
         onAudit:event=>{void this.deps.log("tool-event",{turnId,conversation:conversation.conversationId,agent:agent.userId,lane:"inbox",...event});},
         onProgress:()=>{if(!lease.signal.aborted)this.deps.broadcast("agent:progress",{conversationId:conversation.conversationId,agentUserId:agent.userId,text:tm("orch.progress.inboxHandling"),revision:++this.runtimeRevision});}});
@@ -1273,7 +1300,7 @@ export class LocalScheduler {
     for (const member of conversation.members) {
       if ((member.lastProcessedSeq ?? 0) >= message.seq) continue;
       const agent = await this.deps.store.getUser(member.userId);
-      if (!agent || !owesMessage(conversation, member, agent, message) || !(this.deps.isAgentReady(agent) || this.deps.isAgentPending?.(agent))) continue;
+      if (!agent || !owesMessage(conversation, member, agent, message, await this.deps.store.getUser(message.senderId)) || !(this.deps.isAgentReady(agent) || this.deps.isAgentPending?.(agent))) continue;
       const session = await this.deps.store.getAgentSession(conversation.conversationId, await this.turnSessionKey(conversation, agent.userId));
       if (!session?.providerThreadId || session.recovery) continue;
       await this.deps.store.saveAgentSession({ ...session, recovery: { attempts: 1, state: "retrying", error: p("阿钉在这一轮完成前退出", "ADing exited before this turn finished"), freshContext: false } });
@@ -1398,7 +1425,6 @@ export class LocalScheduler {
       input = { ...input, leaderId: direct ? undefined : id };
       break;
     }
-    input = { ...input, charter: input.charter ? { ...input.charter, mode: undefined } : undefined };
     const conversation = await this.deps.store.createConversation(input);
     const content = input.initialMessage ?? input.charter?.goal ?? "";
     const attachments = input.initialAttachments?.length ? input.initialAttachments : undefined;
@@ -1465,10 +1491,6 @@ export class LocalScheduler {
       if (!agent?.isAgent || !this.deps.isAgentReady(agent)) continue;
       if (!this.deps.resolveDiscovered(agent.userId)) continue;
       if (this.runningTurns.get(agent.userId) === conversationId) continue;
-      if (conversation.type === "GROUP" && conversation.charter?.mode !== "discussion" && member.role !== "LEADER") {
-        const assignment = await this.assignmentFor(conversationId, agent.userId);
-        if (!assignment || !["proposal", "accepted"].includes(assignment.phase)) continue;
-      }
       const session = await this.deps.store.getAgentSession(conversationId,await this.turnSessionKey(conversation,agent.userId));
       if (session?.recovery?.state !== "retrying" && !(await this.hasUnreadFromOthers(conversation, agent))) continue;
       void this.runAgentTurn(conversation, agent, context).catch(() => undefined);
@@ -1701,6 +1723,7 @@ export class LocalScheduler {
   private readonly answeredRelays = new Set<string>();
   /** Whether this computer coordinated each task at the last availability change. */
   private readonly coordinatorSeen = new Map<string, boolean>();
+  private availabilityChanges: Promise<void> = Promise.resolve();
   private readonly releaseTimers = new Map<string, NodeJS.Timeout>();
 
   private finishRelays(conversationId: string, result: BrainstormState["responses"][string]): void {
@@ -1804,29 +1827,154 @@ export class LocalScheduler {
    * Leader takes over coordination right away instead of waiting for new input; work held by an
    * Agent whose computer left is released after a grace period so the team can reassign it.
    */
-  async teamAvailabilityChanged(firstLook = false): Promise<void> {
+  teamAvailabilityChanged(firstLook = false, verifiedKind?: AgentKind): Promise<void> {
+    const next = this.availabilityChanges.catch(() => {}).then(() => this.checkTeamAvailability(firstLook, verifiedKind));
+    this.availabilityChanges = next;
+    return this.track(next);
+  }
+
+  /** Old planning metadata is not proof that a task was interrupted. */
+  private async continuationState(conversation: Conversation) {
+    const messages = await this.deps.store.listMessages(conversation.conversationId, {limit:1000});
+    const humans = await humanMemberIds(this.deps.store, conversation);
+    const input = messages.filter(m => isHumanInput(m, humans) && m.type === "USER" && !m.internal && !m.failed && !m.report).at(-1);
+    let answered = false;
+    if (input) for (const message of messages) {
+      if (message.seq <= input.seq || message.failed || message.report || message.coordination ||
+          messages.some(later => later.seq > message.seq && later.failed && later.senderId === message.senderId)) continue;
+      if (message.agentReply) {
+        if (message.agentReply.lane !== "brainstorm" && message.agentReply.inputSeq >= input.seq) answered = true;
+      } else if (message.type === "USER" && !message.internal && (await this.deps.store.getUser(message.senderId))?.isAgent) {
+        // Older releases saved real replies without agentReply metadata.
+        answered = true;
+      }
+    }
+    const pendingInput = !!input && !answered;
+    const work = await this.hasOpenWork(conversation);
+    const discussion = brainstorming(conversation) && !answered;
+    const interruptedDiscussion = discussion && [conversation.brainstorm?.reason,
+      ...Object.values(conversation.brainstorm?.responses ?? {}).filter(r => !r.ok).map(r => r.reason)
+    ].some(reason => !!reason && (isConnectionFailure(reason) || leaderUnavailable(reason)));
+    return {messages, input, answered, pendingInput, work, discussion, interruptedDiscussion};
+  }
+
+  /** A successful connection probe can reopen a bounded network retry, never an auth/policy failure. */
+  private async recoverVerifiedConnection(conversation: Conversation, kind: AgentKind, state: Awaited<ReturnType<LocalScheduler["continuationState"]>>): Promise<boolean> {
+    if (!state.pendingInput && !state.work && !state.discussion) return false;
+    let resumed = false;
+    // Discussion and Leader reconciliation are task-level: several recovered members of this kind trigger them once.
+    let discussion = false;
+    let reconcileWith: UserRef | undefined;
+    for (const member of conversation.members) {
+      if (member.paused || member.ownerPaused || member.role === "OBSERVER") continue;
+      const agent = await this.deps.store.getUser(member.userId);
+      if (!agent || agent.remote || agent.kind !== kind || !this.deps.isAgentReady(agent) ||
+          this.runningTurns.has(agent.userId) || this.inboxes.has(agent.userId) || this.laneCount(agent.userId)) continue;
+      const assignment = await this.assignmentFor(conversation.conversationId, agent.userId);
+      const item = conversation.workPlan?.find(w => w.id === assignment?.workId);
+      // A failed worker may already have been replaced, or its output accepted.
+      if (assignment && (["result", "revision"].includes(assignment.phase) || item?.status === "done" ||
+          item?.assigneeId && item.assigneeId !== agent.userId ||
+          assignment.phase === "rejected" && item && item.status !== "blocked")) continue;
+      const key = await this.turnSessionKey(conversation, agent.userId);
+      const keys = new Set([key, agent.userId]);
+      for (const work of conversation.workPlan ?? []) if (work.assigneeId === agent.userId && work.status !== "done") {
+        keys.add(`${agent.userId}::assignment:${work.id}`);
+        if (work.assignmentId) keys.add(`${agent.userId}::assignment:${work.assignmentId}`);
+      }
+      const sessions: AgentSessionRef[] = [];
+      for (const sessionKey of keys) {
+        const session = await this.deps.store.getAgentSession(conversation.conversationId,sessionKey);
+        if (session?.recovery && isConnectionFailure(session.recovery.error)) sessions.push(session);
+      }
+      if (!sessions.length) continue;
+      const latestFailure = state.messages.filter(m => m.senderId === agent.userId && m.failed).at(-1);
+      if (latestFailure && state.messages.some(m => m.senderId === agent.userId && !m.failed && !m.report && m.agentReply?.lane !== "brainstorm" &&
+          (m.agentReply?.inputSeq ?? -1) >= latestFailure.seq)) continue;
+      const reassign = assignment?.phase === "rejected" || (this.deps.maxConcurrentWorkPerAgent ?? 1) > 1 &&
+        conversation.workPlan?.some(w => w.assigneeId === agent.userId && w.status !== "done");
+      const leaderMember = conversation.members.find(m => m.role === "LEADER");
+      const leader = reassign && leaderMember && await this.deps.store.getUser(leaderMember.userId);
+      if (reassign && (!leader || leader.remote || !this.present(leader) || leaderMember?.paused ||
+          leaderMember?.ownerPaused || this.runningTurns.has(leader.userId))) continue;
+      for (const session of sessions) await this.deps.store.saveAgentSession({...session,recovery:{...session.recovery!,attempts:1,state:"retrying"}});
+      this.engagedConversations.add(conversation.conversationId);
+      await this.deps.log("connection-recovered-after-check",{conversation:conversation.conversationId,agent:agent.userId});
+      if (state.discussion) {
+        discussion = true;
+      } else if (reassign && leader) {
+        // Reconcile interrupted parallel work with the Leader instead of starting an unscoped worker turn.
+        for (const session of sessions) await this.deps.store.saveAgentSession({...session,recovery:undefined});
+        reconcileWith = leader;
+      } else {
+        void this.runAgentTurn(conversation,agent).catch(error=>this.deps.log("connection-resume-failed",{error:String(error)}));
+      }
+      resumed = true;
+    }
+    if (discussion) await this.handleBrainstorm(conversation,true);
+    else if (reconcileWith) void this.runAgentTurn(conversation,reconcileWith).catch(error=>this.deps.log("connection-resume-failed",{error:String(error)}));
+    return resumed;
+  }
+
+  private async checkTeamAvailability(firstLook: boolean, verifiedKind?: AgentKind): Promise<void> {
     if (this.shuttingDown) return;
     for (const conversation of await this.deps.store.listConversations()) {
       const conversationId = conversation.conversationId;
-      if (conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || this.stoppedConversations.has(conversationId)) continue;
+      if (this.asleep() || conversation.paused || conversation.status !== "ACTIVE" || this.stoppedConversations.has(conversationId)) continue;
+      const continuation = await this.continuationState(conversation);
+      if (verifiedKind && await this.recoverVerifiedConnection(conversation,verifiedKind,continuation)) continue;
+      if (conversation.type !== "GROUP") continue;
       const leaderMember = conversation.members.find(m => m.role === "LEADER");
       const leader = leaderMember && await this.deps.store.getUser(leaderMember.userId);
       const here = !!leader?.isAgent && !leader.remote && this.present(leader);
       const before = this.coordinatorSeen.get(conversationId);
       this.coordinatorSeen.set(conversationId, here);
       if (!here) continue;
+      if (continuation.answered && !continuation.work && brainstorming(conversation) && !this.runningTurns.size && !this.workLanes.size) {
+        await this.deps.store.updateConversation(conversationId,{brainstorm:{...conversation.brainstorm!,phase:"ready",reason:undefined}});
+        await this.deps.log("brainstorm-stale-dropped",{conversation:conversationId,inputSeq:continuation.input?.seq,revision:conversation.brainstorm?.revision});
+        continue;
+      }
       await this.releaseStrandedWork(conversation);
-      // A task first looked at here (e.g. after a restart) is only observed: it isn't resumed without new input.
-      if (before === true || (before === undefined && firstLook)) continue;
+      const owed = await this.deps.store.listOwedMessages?.(conversationId) ?? [];
+      const interrupted = continuation.interruptedDiscussion || continuation.pendingInput && owed.some(m => m.messageId === continuation.input?.messageId);
+      // Merely observing a historical group must not turn a red-to-green check into new work.
+      if (!(this.engagedConversations.has(conversationId) && (continuation.pendingInput || continuation.work || continuation.discussion)) && !interrupted) continue;
+      // Repeated presence broadcasts are not new evidence that a failed connection recovered.
+      if (before === true && !(interrupted && verifiedKind === leader!.kind)) continue;
+      if (before === undefined && firstLook && !(interrupted && verifiedKind === leader!.kind)) continue;
       this.engagedConversations.add(conversationId);
       await this.deps.log("team-coordination-taken",{conversation:conversationId,leader:leader!.userId});
+      if (continuation.interruptedDiscussion && conversation.brainstorm) {
+        const state = conversation.brainstorm;
+        await this.deps.store.updateConversation(conversationId,{brainstorm:{...state,
+          phase:state.phase === "waiting" ? state.evidenceReady ? "synthesize" : "ideas" : state.phase,
+          attempts:0, reason:undefined,
+          responses:Object.fromEntries(Object.entries(state.responses).filter(([,r])=>r.ok || !r.reason || !isConnectionFailure(r.reason)))
+        }});
+      }
       // A discussion under way, or one the previous coordinator never got to start, continues here.
       if (await this.handleBrainstorm(conversation,true)) continue;
-      if (conversation.charter?.mode === "execution") {
+      // Input the previous coordinator received but never answered (its Leader went offline or was
+      // changed mid-turn) is handled here as if it had just arrived. Answered input is not replayed.
+      if (await this.dispatchUnansweredInput(conversationId)) continue;
+      if (await this.hasOpenWork(conversation)) {
         await this.monitorTeam(conversationId,true);
         await this.followUpIdleConversation(conversationId);
       }
     }
+  }
+
+  private async dispatchUnansweredInput(conversationId: string): Promise<boolean> {
+    const conversation = await this.deps.store.getConversation(conversationId);
+    if (!conversation || conversation.paused || conversation.status !== "ACTIVE") return false;
+    const messages = await this.deps.store.listMessages(conversationId, {limit:1000});
+    const input = latestUnansweredInput(messages, await humanMemberIds(this.deps.store, conversation));
+    const leader = conversation.members.find(m => m.role === "LEADER");
+    if (!input || (leader?.lastProcessedSeq ?? 0) >= input.seq) return false;
+    await this.deps.log("unanswered-input-resumed", {conversation:conversationId, seq:input.seq, leader:leader?.userId});
+    await this.dispatch(conversation, input);
+    return true;
   }
 
   private async releaseStrandedWork(conversation: Conversation): Promise<void> {
@@ -1834,6 +1982,7 @@ export class LocalScheduler {
     for (const message of await this.deps.store.listMessages(conversation.conversationId,{limit:1000})) if (message.coordination) latest.set(message.coordination.id,message.coordination);
     for (const assignment of latest.values()) {
       if (assignment.phase !== "proposal" && assignment.phase !== "accepted") continue;
+      if (conversation.workPlan?.some(w => w.assignmentId === assignment.id && w.status === "done")) continue;
       const agent = await this.deps.store.getUser(assignment.assigneeId);
       if (!agent?.isAgent || !agent.remote) continue;
       const key = `${conversation.conversationId}:${assignment.id}`;
@@ -1859,6 +2008,7 @@ export class LocalScheduler {
     if (!conversation || conversation.paused || conversation.status !== "ACTIVE" || !(await this.coordinatesHere(conversation))) return;
     const assignment = (await this.deps.store.listMessages(conversationId,{limit:1000})).filter(m => m.coordination?.id === assignmentId).at(-1)?.coordination;
     if (!assignment || (assignment.phase !== "proposal" && assignment.phase !== "accepted")) return;
+    if (conversation.workPlan?.some(w => w.assignmentId === assignmentId && w.status === "done")) return;
     const leaderId = conversation.members.find(m => m.role === "LEADER")?.userId;
     if (!leaderId) return;
     await this.planner.transition(conversationId,assignment,"blocked");
@@ -2100,7 +2250,7 @@ export class LocalScheduler {
 
       if (!this.engagedConversations.has(conversation.conversationId) || !(await lease.valid())) return;
       const workPlanAtStart = structuredClone(conversation.workPlan ?? []);
-      const discussionOnly = conversation.type === "GROUP" && !(await this.soloAgent(conversation)) && (!conversation.charter?.mode || conversation.charter.mode === "discussion" || (!conversation.members.some(member => member.userId === agent.userId && member.role === "LEADER") && myAssignment?.phase !== "accepted"));
+      const discussionOnly = conversation.type === "GROUP" && !(await this.soloAgent(conversation)) && !conversation.members.some(member => member.userId === agent.userId && member.role === "LEADER") && myAssignment?.phase !== "accepted";
       // A review assignment constrains the work, not the available tool set.
       // Execution requests still go through the owner's global approval policy.
       const fullAccess = !discussionOnly && !leaderCoordinator;
@@ -2122,6 +2272,7 @@ export class LocalScheduler {
       outcome = await this.deps.registry.runTurn(discovered, {
         ...this.knowledgeInput(conversation,agent,resolution),
         steerable:true,
+        preserveReplyText:conversation.type === "DIRECT",
         permissionMode,
         parallelWork:parallelTools ? {key:`${conversation.conversationId}:${agent.userId}`,limit:10,executionSlot:!!this.deps.workAssignmentId,allowSplit:true,planBeforeExecution:false,sessionBudget:11} : undefined,
         canStartWork:()=>this.deps.isAgentReady(agent),
@@ -2644,7 +2795,7 @@ export class LocalScheduler {
       charter?.goal ? p(`会话目标：${charter.goal}`, `Conversation goal: ${charter.goal}`) : "",
       charter?.boundary ? p(`边界：${charter.boundary}（超出这个范围就算跑题）`, `Scope: ${charter.boundary} (anything outside it is off-topic)`) : "",
       charter?.doneWhen ? p(`完成标准：${charter.doneWhen}`, `Done when: ${charter.doneWhen}`) : "",
-      p(`当前内部协作策略：${brainstorming(conversation) ? "共同制定并复核方案，尚未正式分工" : charter?.mode === "discussion" ? "讨论 / 头脑风暴" : charter?.mode === "execution" ? "执行 / 交付" : "待 leader 根据内容判断"}`, `Current internal collaboration mode: ${brainstorming(conversation) ? "jointly drafting and reviewing the plan; work not formally assigned yet" : charter?.mode === "discussion" ? "discussion / brainstorming" : charter?.mode === "execution" ? "execution / delivery" : "to be decided by the leader based on the content"}`),
+      brainstorming(conversation) ? p("当前协作阶段：共同制定并复核方案，尚未正式分工", "Current collaboration stage: jointly drafting and reviewing the plan; work not formally assigned yet") : "",
       charter?.instructions ? p(`主人当前的指示（优先遵守）：${charter.instructions}`, `The task owner's current instructions (take priority): ${charter.instructions}`) : "",
       p(`工作目录：${resolution.workspacePath}`, `Working directory: ${resolution.workspacePath}`)
     ].filter(Boolean);
@@ -2821,20 +2972,13 @@ export class LocalScheduler {
       p("只有最后一段输出进入聊天。中间工具/进度只描述过程，最终回复只给当前有效的交付、讨论或提问。不要拼接过时进展，不声称未实际查看的文件已验收。", "Only the last section of your output goes into the chat. Intermediate tool/progress notes only describe the process; the final reply only gives the currently valid delivery, discussion or question. Don't stitch together outdated progress, and don't claim files you didn't actually look at have been accepted."),
       p("产物先写到自己负责的草稿路径，保留源文件；不得改写其他人的候选版本。逐项核对主人的验收条件，附实际文件路径和检查证据；未通过只能报告部分完成/待修。图像内容和数学符号对照原图，先验收样张再批量处理。同一方法连续失败应讨论替代方案，不能把方法失败说成任务不可能。", "Write outputs to your own draft path first and keep the source files; don't rewrite other people's candidate versions. Check the task owner's acceptance criteria item by item, with actual file paths and evidence of the check; anything that doesn't pass can only be reported as partially done / needs fixing. Compare image content and math symbols against the original, and accept a sample before batch processing. If the same method keeps failing, discuss alternatives; don't present a failed method as the task being impossible."),
       conversation.type === "GROUP"
-        ? p("请阅读以上群聊并判断是否有必要发言。只输出你要在群里说的话，不要复述别人说过的内容。\n如果你没有什么想说的，只回复 SKIP。", "Read the group chat above and decide whether you need to say something. Output only what you want to say in the group; don't repeat what others have said.\nIf you have nothing to say, reply only SKIP.")
+        ? p("请阅读以上群聊。群里每个人都能看到每条消息，你像真人群成员一样，以最新消息为中心判断自己要不要发言、回应哪条：\n- 最新消息 @ 你或点名提到你：必须回复。\n- 最新消息 @ 了其他成员：默认不回复；只有发现明显错误，或你掌握对方缺少的关键信息时才发言。\n- 你参与过与最新消息相关的话题，或消息和你手上的工作有关：按需要回复。\n- 无人指定的请求或提问：由 Leader 回复；其他人有不同看法或关键补充时再发言。\n- Leader 已经派工的复杂任务进行中：由 Leader 统筹回应；其他成员只在消息与自己的工作有关、被点名，或有关键信息、纠错要补充时发言。\n- 最新消息与你无关（例如别人之间的交流、明确交给其他成员的事）：不回复。\n早先的话题已告一段落、与最新消息无关时，只回应最新消息，不要接着旧话题说，也不要重提旧方案。\n只输出你要在群里说的话，不要复述别人说过的内容。不需要发言时只回复 SKIP。", "Read the group chat above. Everyone in the group sees every message; like a member of a real group, decide from the latest message whether to speak and which message to respond to:\n- The latest message @-mentions you or names you: you must reply.\n- The latest message @-mentions other members: don't reply by default; speak only if you spot an obvious mistake or have key information they're missing.\n- You took part in a topic the latest message relates to, or it concerns work you're doing: reply as needed.\n- A request or question addressed to no one in particular: the Leader replies; others speak only if they have a different view or a key addition.\n- A complex task the Leader has already assigned is under way: the Leader coordinates and responds; other members speak only when the message concerns their own work, they're named, or they have key information or a correction to add.\n- The latest message has nothing to do with you (for example other people talking to each other, or something clearly handed to another member): don't reply.\nWhen an earlier topic has wrapped up and is unrelated to the latest message, respond only to the latest message; don't carry on the old topic or bring old plans back up.\nOutput only what you want to say in the group; don't repeat what others have said. When you don't need to speak, reply only SKIP.")
         : p("请回复老板。", "Please reply to your boss.")
     );
     if (myRole === "LEADER") {
       stable(
-        p("你负责根据会话目标、聊天上下文和主人的最新指示自主判断如何组织协作，不能要求主人选择或解释任务类型。纯交流、创意发散或头脑风暴用 discussion；需要操作、制作产物、修复或交付结果用 execution。混合任务按当前阶段判断，并在需求或阶段变化时重新评估。", "You are responsible for deciding on your own how to organize the collaboration, based on the conversation goal, the chat context and the task owner's latest instructions; don't ask the task owner to choose or explain the task type. Use discussion for pure conversation, creative exploration or brainstorming; use execution when the work needs operations, producing outputs, fixing or delivering results. For mixed tasks, judge by the current stage, and re-evaluate when the requirements or stage change.")
-      );
-      perTurn(
-        conversation.brainstorm?.phase==="ready" && charter?.mode==="execution"
-          ? p("共同方案已经完成评审并进入执行，不要再次输出 organize 或重新分类。立即把已通过的方法落实为 plan；工作说明必须写明主工具、首个验证动作、失败判据和替代路线，不能只重复目标。", "The joint plan has been reviewed and execution has started; don't output organize or reclassify again. Turn the approved method into a plan right away; each work description must state the main tool, the first verification step, the failure criteria and the fallback route, not just repeat the goal.")
-          : p('首次判断或调整时，在末尾使用 {"control":{"action":"organize","mode":"discussion"}} 或 {"control":{"action":"organize","mode":"execution"}}。这是内部调度，不要把分类选项交给用户。初次判断只需理解上下文，不执行工具；确定后系统自动继续相应工作。已有执行分工需先收取结果，再切换到讨论。', `When you first decide or adjust, use {"control":{"action":"organize","mode":"discussion"}} or {"control":{"action":"organize","mode":"execution"}} at the end. This is internal scheduling; don't hand the classification choice to the user. The first decision only needs you to understand the context, without running tools; once decided, the system continues the corresponding work automatically. If execution assignments already exist, collect their results before switching to discussion.`)
-      );
-      stable(
-        p('也可将 "mode":"execution" 附在 assign 控制中，一次完成判断和批量分工。', 'You can also attach "mode":"execution" to an assign control to decide and assign work in bulk in one step.')
+        p("你负责统筹全局：根据会话目标、聊天上下文和主人的最新指示，自主判断最新消息需要怎样回应，不能要求主人选择或解释任务类型。普通交流直接在群里回复；需要操作、制作产物、修复或交付结果的任务，可以自己完成，复杂时拆分并用 plan 或 assign 分派，由你主持进度。", "You coordinate the big picture: based on the conversation goal, the chat context and the task owner's latest instructions, decide on your own how the latest message should be handled; don't ask the task owner to choose or explain the task type. Reply in the group directly for ordinary conversation; for work that needs operations, producing outputs, fixing or delivering results, you can do it yourself, or when it's complex, split it up and assign it with plan or assign, and you run the progress."),
+        p("操作任务以实际成果为目标：持续理解主人需求、必要时确认，拆分独立工作、指导协商、review 实物结果并总结交付。难题交给能力适合的 Agent；较简单但耗 token 的工作优先交给已知剩余配额更多者。配额未知时明确未知，可依据主人指示，不能捏造。不可分派给不可用、暂停或观察员。不要为并行而拆碎小事或重复劳动。你也要承担适合自己的实质工作，与已委派的工作并行；明确各自输出路径、验收条件和依赖，避免覆盖。", "For operational tasks the goal is actual results: keep understanding the task owner's needs, confirm when necessary, split independent work, guide negotiation, review the actual outputs and summarize the delivery. Hard problems go to the Agent with suitable capability; simpler but token-heavy work goes first to whoever is known to have more remaining quota. When quota is unknown, say it's unknown; you may follow the task owner's instructions, but don't make it up. Don't assign work to members who are unavailable, paused or observers. Don't split small things into pieces or duplicate work just for parallelism. You also take on substantive work suited to you, in parallel with delegated work; make each one's output path, acceptance criteria and dependencies clear to avoid overwriting.")
       );
       const board = await Promise.all(conversation.members.map(member => this.assignmentFor(conversation.conversationId, member.userId)));
       const boardState = stateDelta(board.filter((item): item is NonNullable<typeof item> => !!item), item => item.id, delivered ? delivered.board ?? {items:{},turns:0} : undefined);
@@ -2862,18 +3006,12 @@ export class LocalScheduler {
         p('收到结果后实际检查，再用 {"control":{"action":"review","workId":"crop1","verdict":"pass或retry","evidence":"实际检查的文件和逐项证据"}}。成员提交只是待验收。需要异人验收时先安排独立复核工作。不修改被核查原件的工作标 readOnly=true，outputs可为空；这是工作范围要求，不是禁用工具或禁止保存报告。需要报告文件时指定独立输出路径。工具审批统一遵循主人的权限设置。retry 会退回 blocked，不会原样自动重跑；用 plan 更新受阻项的方案和候选人后再派发。', `After receiving results, actually check them, then use {"control":{"action":"review","workId":"crop1","verdict":"pass or retry","evidence":"the files actually checked and item-by-item evidence"}}. A member's submission only awaits acceptance. When acceptance by a different person is needed, arrange an independent review work item first. Mark work that doesn't modify the original being checked as readOnly=true; outputs may be empty. That's a scope requirement, not a ban on tools or on saving a report. When a report file is needed, specify a separate output path. Tool approvals follow the task owner's permission settings. retry sends the item back to blocked and doesn't rerun it automatically as-is; update the blocked item's plan and candidates with plan before dispatching again.`)
       );
       stable(
+        p("最后一批验收通过且没有后续工作时，在本轮正文交付最终结果，并提交 review/pass（多项用 batch）。全部工作已验收且没有新输入或在途工作后，系统会结束自动跟进，无需另起一轮重复验收或补 stop。仍有后续工作时在同一 batch 登记 plan。", "When the final batch passes acceptance and no further work remains, deliver the final result in this reply and submit review/pass (use batch for multiple items). Once all work is accepted and there is no new input or in-flight work, the system ends automatic follow-up; no extra turn is needed to repeat acceptance or add stop. If further work remains, register its plan in the same batch."),
         p('优先同轮提交多个已检查结果和后续安排：{"control":{"action":"batch","actions":[{"action":"review","workId":"crop1","verdict":"pass","evidence":"实际检查证据"},{"action":"plan","work":[完整工作项]}]}}。actions最多20项，只含review和plan、不嵌套，依次执行；某项过时不阻止其他独立项，但依赖仍须验收通过。不要为了每个验收或派工单独调用一轮。旧的单项控制仍可用。', `Prefer submitting several checked results and the follow-up arrangements in the same turn: {"control":{"action":"batch","actions":[{"action":"review","workId":"crop1","verdict":"pass","evidence":"evidence actually checked"},{"action":"plan","work":[full work items]}]}}. actions holds at most 20 items, only review and plan, not nested, run in order; an outdated item doesn't block other independent items, but dependencies still have to pass acceptance. Don't spend a separate turn on each acceptance or assignment. The old single-item controls still work.`),
         p("先把不依赖自己操作的工作正式派出去，再开始自己的长操作。结果可用时一批核查、一批加工并行；每完成一个小成果就结束当前轮并交回安排，不把一整批串在自己的单轮里。多名成员确认接单不会额外唤醒你，结果和异议会；不用回复收到或重复开始指令。", "First formally dispatch the work that doesn't depend on your own operations, then start your own long operation. When results are available, check one batch and process another in parallel; each time a small result is done, end the current turn and hand back the arrangement, instead of chaining a whole batch in your own single turn. Several members confirming acceptance won't wake you up again; results and objections will. There's no need to reply that you received them or repeat start instructions."),
         p("计划要包含样张或小样验证。不要把工具调用次数当进展，也不要让简单裁边/复制等步骤的协商成本超过工作本身，可合成一个可验收小批。", "The plan should include sample or small-batch verification. Don't treat the number of tool calls as progress, and don't let the negotiation cost of simple steps like trimming edges or copying exceed the work itself; they can be combined into one acceptable small batch.")
       );
     }
-    perTurn(
-      !charter?.mode
-        ? p("先由 leader 理解内容并确定如何协作；尚未判定前不执行操作，也不预设任务必须交付文件。不要向主人询问该选哪种方式。", "First the leader understands the content and decides how to collaborate; until that's decided, don't run operations, and don't assume the task must deliver files. Don't ask the task owner which approach to choose.")
-        : charter.mode === "discussion"
-        ? p("这是沟通任务：积极提出独立观点、回应异议，避免重复；leader 把握方向、总结和引导。不要擅自进行操作。", "This is a conversation task: actively offer independent views and respond to objections, avoiding repetition; the leader steers the direction, summarizes and guides. Don't take actions on your own.")
-        : p("这是操作任务：以实际成果为目标。leader 持续理解主人需求、必要时确认，拆分独立工作、指导协商、review 实物结果并总结交付。难题交给能力适合的 Agent；较简单但耗 token 的工作优先交给已知剩余配额更多者。配额未知时明确未知，可依据主人指示，不能捏造。不可分派给不可用、暂停或观察员。不要为并行而拆碎小事或重复劳动。leader 也要承担适合自己的实质工作，与已委派的工作并行；明确各自输出路径、验收条件和依赖，避免覆盖。", "This is an operational task: the goal is actual results. The leader keeps understanding the task owner's needs, confirms when necessary, splits independent work, guides negotiation, reviews the actual outputs and summarizes the delivery. Hard problems go to the Agent with suitable capability; simpler but token-heavy work goes first to whoever is known to have more remaining quota. When quota is unknown, say it's unknown; you may follow the task owner's instructions, but don't make it up. Don't assign work to members who are unavailable, paused or observers. Don't split small things into pieces or duplicate work just for parallelism. The leader also takes on substantive work suited to them, in parallel with delegated work; make each one's output path, acceptance criteria and dependencies clear to avoid overwriting.")
-    );
     stable(
       p("共同方案已通过评审后，以独立产物为单位登记 plan，包括自己的执行与独立复核；不要再用临时 assign 承载制作工作。每项必须继承讨论中最终采用的具体方法；被明确否决的方法不得重新成为主路线，除非出现新证据并先交回 Leader 讨论。每项包含制作和基本自检，避免把读取、保存等小步骤拆成跨成员接力。复核结果返回后及时 review，并在同一 batch 登记依赖已满足的后续工作。工具能力以实际可调用工具为准，不能只按角色名称平均分配。", "After the joint plan passes review, register plan items by independent output, including your own execution and independent reviews; don't carry production work with ad-hoc assign anymore. Each item must inherit the specific method finally adopted in the discussion; a method that was explicitly rejected can't become the main route again unless there's new evidence and it goes back to the Leader for discussion first. Each item includes production and a basic self-check; avoid splitting small steps like reading and saving into relays across members. When review results come back, review promptly and register follow-up work whose dependencies are now met in the same batch. Tool capability is based on the tools that can actually be called, not an even split by role name."),
       p("委派必须用结构化控制，口头点名不会执行分工。可在同一个控制块中用 assignments 数组一次提出多个独立分工。接收者应先独立评估方案、成本、能力和风险，用自然语言明确同意或提出问题和替代建议，达成一致前不动手。接受后系统会安排下一轮执行。", "Delegation must use structured control; naming someone verbally doesn't assign work. You can propose several independent assignments at once with an assignments array in the same control block. The recipient should first independently evaluate the plan, cost, capability and risk, then clearly agree in natural language or raise questions and alternatives, and not start before agreement. After acceptance, the system schedules the next execution turn."),
@@ -2882,8 +3020,8 @@ export class LocalScheduler {
     perTurn(
       assignment ? p(`你当前的分工状态：${JSON.stringify(assignment)}`, `Your current assignment status: ${JSON.stringify(assignment)}`) : p("你当前没有待接收的分工。", "You have no assignment waiting to be accepted."),
       assignment?.readOnly ? p("本分工 readOnly=true 表示不得修改被核查的原件或超出核查范围；并不禁止工具调用。可按交付需要在当前会话工作目录中保存独立报告、创建测量用临时副本，不覆盖原件或他人产物。若要求直接回复，则不必额外写文件。工具权限由主人的全局审批设置处理，不因 readOnly 标签自行断言无写入权限，也不要求主人处理内部权限矛盾；以实际工具结果为准。", "readOnly=true on this assignment means you must not modify the original being checked or go beyond the scope of the check; it doesn't forbid tool calls. As delivery requires, you may save a separate report in the current conversation's working directory and create temporary copies for measurement, without overwriting the original or other people's outputs. If a direct reply is asked for, there's no need to write an extra file. Tool permissions are handled by the task owner's global approval settings; don't assert on your own that you lack write permission because of the readOnly label, and don't ask the task owner to resolve internal permission contradictions; go by the actual tool results.") : "",
-      myRole !== "LEADER" && conversation.type === "GROUP" && charter?.mode !== "discussion"
-        ? assignment?.phase === "accepted" ? p("方案已达成一致，现在严格按分工中写明的主工具、首个验证动作和失败路线执行并交付路径、验证证据和未解决项。不得静默换回讨论中已否决的方法；发现主工具不可用或有新证据时，先报告 blocked 交回 Leader。若无法完成，在末尾用 control action=blocked、assignmentId=当前分工id、reason=实际障碍；不要把受阻描述为已完成。", "The plan is agreed. Now execute strictly with the main tool, first verification step and failure route written in the assignment, and deliver the paths, verification evidence and unresolved items. Don't silently switch back to a method that was rejected in the discussion; if the main tool is unavailable or there's new evidence, first report blocked and hand it back to the Leader. If you can't finish, use control action=blocked, assignmentId=the current assignment id and reason=the actual obstacle at the end; don't describe blocked work as done.") : p('本轮仅沟通与评估，没有工具；这不表示执行轮也没有工具。请明确复述你准备采用的主工具/关键步骤，并指出是否与已通过方案完全一致；一致才 accept。想改用被否决的方法必须 revise 并给新证据，不能一边声称同意一边换路线。正文保持简短，末尾用 {"control":{"action":"accept","assignmentId":"对应 id"}} 或 revise 加 reason。', `This turn is only for communication and evaluation, with no tools; that doesn't mean the execution turn has no tools either. Clearly restate the main tool/key steps you plan to use, and say whether they exactly match the approved plan; only accept if they do. If you want to switch to a rejected method, you must revise with new evidence — you can't claim to agree while changing route. Keep the body short, and end with {"control":{"action":"accept","assignmentId":"the matching id"}} or revise with a reason.`)
+      myRole !== "LEADER" && conversation.type === "GROUP" && assignment
+        ? assignment.phase === "accepted" ? p("方案已达成一致，现在严格按分工中写明的主工具、首个验证动作和失败路线执行并交付路径、验证证据和未解决项。不得静默换回讨论中已否决的方法；发现主工具不可用或有新证据时，先报告 blocked 交回 Leader。若无法完成，在末尾用 control action=blocked、assignmentId=当前分工id、reason=实际障碍；不要把受阻描述为已完成。", "The plan is agreed. Now execute strictly with the main tool, first verification step and failure route written in the assignment, and deliver the paths, verification evidence and unresolved items. Don't silently switch back to a method that was rejected in the discussion; if the main tool is unavailable or there's new evidence, first report blocked and hand it back to the Leader. If you can't finish, use control action=blocked, assignmentId=the current assignment id and reason=the actual obstacle at the end; don't describe blocked work as done.") : p('本轮仅沟通与评估，没有工具；这不表示执行轮也没有工具。请明确复述你准备采用的主工具/关键步骤，并指出是否与已通过方案完全一致；一致才 accept。想改用被否决的方法必须 revise 并给新证据，不能一边声称同意一边换路线。正文保持简短，末尾用 {"control":{"action":"accept","assignmentId":"对应 id"}} 或 revise 加 reason。', `This turn is only for communication and evaluation, with no tools; that doesn't mean the execution turn has no tools either. Clearly restate the main tool/key steps you plan to use, and say whether they exactly match the approved plan; only accept if they do. If you want to switch to a rejected method, you must revise with new evidence — you can't claim to agree while changing route. Keep the body short, and end with {"control":{"action":"accept","assignmentId":"the matching id"}} or revise with a reason.`)
         : ""
     );
     if (myRole === "LEADER") {
@@ -3004,23 +3142,13 @@ export class LocalScheduler {
       return visible;
     }
     if (!control) return reply;
-    const mode = control.mode ?? (["assign","plan","batch"].includes(control.action) && !conversation.charter?.mode ? "execution" : undefined);
-    if (mode) {
-      const fresh = await this.deps.store.getConversation(conversation.conversationId);
-      if (!fresh || fresh.paused || fresh.status !== "ACTIVE" || !fresh.members.some(member => member.userId === speaker.userId && member.role === "LEADER")) return visible;
-      if (fresh.charter?.mode !== mode) {
-        const assignments = await Promise.all(fresh.members.filter(member => member.userId !== speaker.userId).map(member => this.assignmentFor(conversation.conversationId, member.userId)));
-        if (mode === "discussion" && assignments.some(assignment => assignment && ["accepted", "proposal"].includes(assignment.phase))) {
-          await say(p("已有分工正在执行或等待确认，请先收取结果、协调当前工作，再组织下一阶段讨论。", "There are assignments running or awaiting confirmation; collect their results and coordinate the current work before organizing the next stage of discussion."), leaderIds);
-          return visible;
-        }
-        conversation = await this.deps.store.updateConversation(conversation.conversationId, { charter: { ...fresh.charter, mode } });
-        await this.deps.log("leader-coordination-mode", { conversation: conversation.conversationId, leader: speaker.userId, mode });
-        if (mode === "execution") this.rememberPending(conversation, speaker, context, conversation.lastSeq, true);
-      }
-      if (control.action === "organize") {
-        return visible || (mode === "discussion" ? p("我们先交流思路，欢迎大家提出观点和不同意见，我来梳理方向。", "Let's exchange ideas first. Everyone is welcome to share views and disagreements, and I'll sort out the direction.") : p("我会根据目标安排工作、参与执行，并在交付前核验结果。", "I'll arrange the work according to the goal, take part in execution, and verify the results before delivery."));
-      }
+    // organize used to pick an internal discussion/execution mode; that mode is gone, so it changes nothing.
+    if (control.action === "organize") return visible;
+    // The first ad-hoc delegation in a group gives the Leader another turn to carry on with its own share
+    // (plan work, the Leader's own included, runs in work lanes and needs no extra coordination turn).
+    if (conversation.type === "GROUP" && control.action === "assign" && !conversation.workPlan?.length && !(await this.hasOpenWork(conversation)) &&
+        conversation.members.some(member => member.userId === speaker.userId && member.role === "LEADER")) {
+      this.rememberPending(conversation, speaker, context, conversation.lastSeq, true);
     }
     if (["plan", "review", "batch"].includes(control.action)) {
       const actions = control.action === "batch" ? control.actions! : [control];
@@ -3316,8 +3444,8 @@ export class LocalScheduler {
         limit: 100
       });
       if (!messages.length) return false;
-      // An @ addressed to someone else isn't this Agent's to pick up.
-      if (messages.some((message) => message.senderId !== agent.userId && !message.failed && !message.report && !isTeamRelay(message) && (!message.mentions?.length || message.mentions.includes(agent.userId)))) {
+      // Everyone reads ordinary messages, @ included; only a delegation for someone else isn't this Agent's to pick up.
+      if (messages.some((message) => message.senderId !== agent.userId && !message.failed && !message.report && !isTeamRelay(message) && (!message.coordination || message.mentions.includes(agent.userId)))) {
         return true;
       }
       afterSeq = messages[messages.length - 1].seq;

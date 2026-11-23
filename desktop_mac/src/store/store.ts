@@ -210,6 +210,8 @@ export interface Store {
   ): Promise<AgentSessionRef | null>;
 
   saveAgentSession(session: AgentSessionRef): Promise<void>;
+  /** All saved sessions of one task, including per-assignment keys (agentUserId::assignment:...). */
+  listAgentSessions?(conversationId: string): Promise<AgentSessionRef[]>;
 
   // ---- Shared skill library ----
   /** Central library identity, also used to scope ownership of native replicas. */

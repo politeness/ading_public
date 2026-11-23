@@ -163,6 +163,7 @@ struct PendingAttachmentsBar: View {
     @State private var viewing: ViewingImage?
     @State private var playing: PlayingVideo?
     @State private var previewURL: URL?
+    @State private var viewingHTML: HTMLAttachment?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -191,6 +192,9 @@ struct PendingAttachmentsBar: View {
             .padding(.top, 10)
         }
         .quickLookPreview($previewURL)
+        .fullScreenCover(item: $viewingHTML) { attachment in
+            HTMLAttachmentScreen(attachment: attachment)
+        }
         .fullScreenCover(item: $playing) { video in
             VideoScreen(url: video.url)
         }
@@ -199,12 +203,14 @@ struct PendingAttachmentsBar: View {
         }
     }
 
-    /// Same as attachments in messages: images zoom, videos play, other files use system preview
+    /// Same as attachments in messages: images zoom, videos play, HTML uses a web preview.
     private func open(_ attachment: LocalAttachment) {
         if attachment.isImage {
             viewing = ViewingImage(url: attachment.fileURL)
         } else if attachment.isVideo {
             playing = PlayingVideo(url: attachment.fileURL)
+        } else if HTMLAttachment.matches(name: attachment.name) {
+            viewingHTML = HTMLAttachment(url: attachment.fileURL, name: attachment.name)
         } else {
             previewURL = attachment.fileURL
         }
@@ -250,6 +256,7 @@ struct MessageAttachmentsView: View {
     let attachments: [RemoteAttachment]
     let mine: Bool
     @State private var previewURL: URL?
+    @State private var viewingHTML: HTMLAttachment?
     @State private var playing: PlayingVideo?
     @State private var viewing: ViewingImage?
     @State private var opening: String?
@@ -281,6 +288,9 @@ struct MessageAttachmentsView: View {
             }
         }
         .quickLookPreview($previewURL)
+        .fullScreenCover(item: $viewingHTML) { attachment in
+            HTMLAttachmentScreen(attachment: attachment)
+        }
         .fullScreenCover(item: $playing) { video in
             VideoScreen(url: video.url)
         }
@@ -311,14 +321,19 @@ struct MessageAttachmentsView: View {
         .contentShape(Rectangle())
     }
 
-    /// Download to cache, then hand to system preview
+    /// Download to cache, then run HTML as a web page and hand other files to system preview.
     private func open(_ attachment: RemoteAttachment) {
         guard opening == nil else { return }
         opening = attachment.attachmentId
         Task {
             defer { opening = nil }
             do {
-                previewURL = try await APIClient.shared.downloadedFile(attachment, in: conversationId)
+                let url = try await APIClient.shared.downloadedFile(attachment, in: conversationId)
+                if HTMLAttachment.matches(name: attachment.name) {
+                    viewingHTML = HTMLAttachment(url: url, name: attachment.name)
+                } else {
+                    previewURL = url
+                }
                 failure = nil
             } catch {
                 failure = error.localizedDescription

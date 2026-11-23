@@ -3,8 +3,8 @@ import {LocalStore} from '../dist/store/local.js';import {LocalScheduler} from '
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-direct-'));let store=new LocalStore(dir);await store.init();
 try{
  const [agent]=await store.syncDiscoveredAgents([{kind:'qoder-cn',localUuid:'qcn',version:'test',executablePath:'/mock'}]);const me=await store.currentUser();
- const conversation=await store.createConversation({name:'问候',memberIds:[agent.userId],leaderId:agent.userId,charter:{goal:'hi？',mode:'discussion'}});
- assert.equal(conversation.type,'DIRECT');assert.ok(conversation.members.every(m=>m.role!=='LEADER'));assert.equal(conversation.charter.mode,undefined);
+ const conversation=await store.createConversation({name:'问候',memberIds:[agent.userId],leaderId:agent.userId,charter:{goal:'hi？'}});
+ assert.equal(conversation.type,'DIRECT');assert.ok(conversation.members.every(m=>m.role!=='LEADER'));
  await assert.rejects(store.setMemberRole(conversation.conversationId,agent.userId,'LEADER'),/单聊/);
  await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:'old-user',senderId:me.userId,content:'hi？'});
  await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:'old-agent',senderId:agent.userId,content:'你好，有什么事？'});
@@ -22,6 +22,7 @@ try{
  assert.ok(split.dialogue.includes('hi？')&&split.dialogue.includes('你好，有什么事？'),'Conversation content goes to conversation');
  assert.ok(!split.app.includes('你好，有什么事？'),'Conversation content stays out of the ADing instruction half');
  assert.ok(split.app.includes('工作目录'),'ADing-generated instructions go to app');
+ assert.equal(calls[0].preserveReplyText,true,'Direct chats keep the reply already output before tools');
  // After split delivery the protocol block goes into the system instruction channel instead of after the conversation, so compare content, not order:
  // every paragraph must appear as-is in one of the halves, none lost and none added.
  const paragraphs=text=>text.split('\n\n').map(part=>part.trim()).filter(Boolean).sort();

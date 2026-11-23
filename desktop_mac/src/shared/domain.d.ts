@@ -395,8 +395,6 @@ interface Workspace {
  * This is configuration a person sets, not automatically captured memory — the two are deliberately stored separately.
  */
 interface Charter {
-  /** Internal collaboration strategy, decided by the Leader; the user doesn't need to choose. */
-  mode?: "execution" | "discussion";
   instructions?: string;
   /** What this conversation should achieve */
   goal?: string;
@@ -830,7 +828,6 @@ interface LeaderControl {
   workId?: string;
   verdict?: "pass" | "retry";
   evidence?: string;
-  mode?: "execution" | "discussion";
   assignmentId?: string;
   assignments?: { to: string; assignment: string }[];
   /** Member userId named for assign */

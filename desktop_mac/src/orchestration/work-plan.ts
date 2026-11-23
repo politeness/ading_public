@@ -174,7 +174,7 @@ export class WorkPlanner {
   fill(conversationId: string): Promise<void> {
     return this.serial(async () => {
       let conversation = await this.deps.store.getConversation(conversationId);
-      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || conversation.charter?.mode !== "execution" || !conversation.workPlan?.length) return;
+      if (!conversation || conversation.type !== "GROUP" || conversation.paused || conversation.status !== "ACTIVE" || !conversation.workPlan?.length) return;
       const leader = conversation.members.find(m=>m.role==="LEADER");
       if (!leader || !(await this.coordinates(conversation))) return;
       const plan = structuredClone(conversation.workPlan);

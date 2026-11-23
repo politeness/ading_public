@@ -24,6 +24,7 @@ Chats can send photos and videos (from the photo library) and any file (from the
 Files don't go through the backend: first register with `POST /conversations/{id}/attachments`, PUT directly to OSS using the returned signed URL, and send the message once the upload completes.
 HEIC photos from the library are converted to JPEG before sending, so both desktop and the agents on the computer can open them directly.
 Received attachments are downloaded on demand to the cache directory (image thumbnails, file previews); videos play directly from the signed URL.
+`.html` / `.htm` attachments (including the pre-send preview) run JavaScript and animations in a separate WKWebView, keeping close and share. The page can only read the current attachment file and does not share the app's sign-in data; multi-file pages that reference other local files must first be merged into a single HTML file.
 
 ## Problem feedback
 
@@ -85,6 +86,17 @@ out=$(mktemp -d)
 swiftc ADing/App/AppRules.swift tests/AppRulesTests.swift -o "$out/rules" && "$out/rules"
 swiftc -parse-as-library ADing/App/MqttActivityState.swift tests/MqttActivityStateTests.swift -o "$out/mqtt" && "$out/mqtt"
 swiftc -parse-as-library ADing/Networking/ProblemFeedback.swift ADing/Networking/L10n.swift ADing/Networking/SharedStore.swift tests/ProblemFeedbackTests.swift -o "$out/feedback" && "$out/feedback"
+rm -rf "$out"
+```
+
+For refresh and network-cancellation regressions run `sh scripts/test-refresh.sh`, which covers cancellation, recovery, out-of-order refreshes and real authentication failures; network responses are mocked with URLProtocol and credentials use isolated test storage.
+
+HTML attachments also have a macOS WebKit runtime test (requires a graphical login session) covering JavaScript, Canvas animation, synthesized pointer events and local file isolation; it does not replace touch verification on a real iPhone:
+
+```bash
+out=$(mktemp -d)
+swiftc -parse-as-library ADing/Views/HTMLAttachmentPreview.swift tests/HTMLAttachmentPreviewTests.swift -o "$out/html-preview"
+"$out/html-preview"
 rm -rf "$out"
 ```
 

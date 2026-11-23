@@ -1,7 +1,7 @@
 {
   "name": "ading-desktop-mac",
   "productName": "ADing",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "adingChannel": "develop",
   "private": true,
   "description": "ADing desktop client and local agent node",
@@ -19,7 +19,7 @@
     "package:local": "pnpm build && node scripts/package-local.mjs",
     "test": "pnpm build && node test/run.mjs",
     "test:regressions": "pnpm build && node test/architecture-regressions.test.mjs && node test/runtime-environment.test.mjs && node test/handshake.test.mjs && node test/qoder-recovery.test.mjs && node test/probe-session.test.mjs",
-    "test:ui": "pnpm build && electron test/ui.test.cjs && electron test/message-links-ui.test.cjs && electron test/permanent-mentions-ui.test.cjs && electron test/conversation-feedback-ui.test.cjs && electron test/conversation-switcher-ui.test.cjs && electron test/infinite-lists-ui.test.cjs && electron test/agent-recovery-ui.test.cjs && electron test/agent-install-ui.test.cjs && electron test/permission-dialog.test.cjs && electron test/chat-scroll.test.cjs && electron test/process-scroll.test.cjs && electron test/backdrop-click.test.cjs && electron test/i18n-ui.test.cjs && electron test/attachment-notice-ui.test.cjs && electron test/image-preview-ui.test.cjs && electron test/knowledge-ui.test.cjs && electron test/qwen-ui.test.cjs && electron test/draft-add-member-ui.test.cjs && electron test/add-member-menu-ui.test.cjs && electron test/member-lock-hint-ui.test.cjs && electron test/mention-ui.test.cjs && electron test/shared-agent-members-ui.test.cjs && electron test/mention-navigation-ui.test.cjs && electron test/agent-model-ui.test.cjs && electron test/message-math-ui.test.cjs && electron test/onboarding-ui.test.cjs",
+    "test:ui": "pnpm build && electron test/ui.test.cjs && electron test/message-links-ui.test.cjs && electron test/permanent-mentions-ui.test.cjs && electron test/conversation-feedback-ui.test.cjs && electron test/conversation-switcher-ui.test.cjs && electron test/infinite-lists-ui.test.cjs && electron test/agent-recovery-ui.test.cjs && electron test/agent-install-ui.test.cjs && electron test/permission-dialog.test.cjs && electron test/chat-scroll.test.cjs && electron test/message-history-ui.test.cjs && electron test/process-scroll.test.cjs && electron test/backdrop-click.test.cjs && electron test/i18n-ui.test.cjs && electron test/attachment-notice-ui.test.cjs && electron test/image-preview-ui.test.cjs && electron test/knowledge-ui.test.cjs && electron test/qwen-ui.test.cjs && electron test/draft-add-member-ui.test.cjs && electron test/add-member-menu-ui.test.cjs && electron test/member-lock-hint-ui.test.cjs && electron test/mention-ui.test.cjs && electron test/shared-agent-members-ui.test.cjs && electron test/mention-navigation-ui.test.cjs && electron test/agent-model-ui.test.cjs && electron test/message-math-ui.test.cjs && electron test/onboarding-ui.test.cjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "headless": "pnpm build && electron . --headless"
   },

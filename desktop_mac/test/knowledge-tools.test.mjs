@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,chmod,rm,mkdir} from 'node:fs/promises';
 import os from 'node:os';
@@ -12,6 +13,7 @@ import {LocalStore} from '../dist/store/local.js';
 import {LocalScheduler} from '../dist/orchestration/local-scheduler.js';
 import {SkillCapture} from '../dist/skills/capture.js';
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-knowledge-tools-'));
+configureCodexSessionRoot(path.join(dir,'codex-sessions'));
 const signal=new AbortController().signal;
 const base={prompt:'fixture',workspacePath:dir,fullAccess:false,onProgress:()=>{}};
 let calls=0,approvals=0;

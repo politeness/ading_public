@@ -104,7 +104,7 @@ actor FeedbackTransportFixture {
             for status in [400, 200] {
                 await fixture.configure(status: status, code: "SUPPORT_BAD")
                 let bad = report(); try await queue.enqueue(bad, baseURL: base)
-                check(await queue.upload(bad.reportId) == .rejected("fixture rejection"), "permanent rejection stays visible")
+                check(await queue.upload(bad.reportId) == .rejected(L10n.string("error.requestFailed")), "permanent rejection stays visible in the UI language, not the server text")
                 check(FileManager.default.fileExists(atPath: root.appendingPathComponent("failed/\(bad.reportId).json").path), "retain rejected content for diagnosis")
             }
             await fixture.configure()

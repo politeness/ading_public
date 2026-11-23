@@ -72,6 +72,31 @@ export abstract class StreamJsonAgent extends ExecutionAgent implements AgentAda
   protected readonly noPersistenceFlag: string = "--no-session-persistence";
   /** Reason from the latest discover for "file exists but won't run"; cleared when a usable CLI is found */
   private discoveryFailure: string | undefined;
+  private executableRefresh?: Promise<DiscoveredAgent | undefined>;
+
+  /** Desktop updates can remove the versioned executable kept by an active contact.
+   * Recover before probing flags or starting work; never replay an executed turn. */
+  private async refreshMissingExecutable(agent: DiscoveredAgent): Promise<void> {
+    try {
+      await access(agent.executablePath, constants.X_OK);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // Permission failures must retain their original diagnostic.
+      if (code !== "ENOENT" && code !== "ENOTDIR") return;
+    }
+    this.executableRefresh ??= this.discover()
+      .then(agents => agents.find(candidate => candidate.kind === agent.kind))
+      .catch(() => undefined)
+      .finally(() => { this.executableRefresh = undefined; });
+    const replacement = await this.executableRefresh;
+    if (!replacement) return;
+    // Preserve identity, session ownership and the user's runtime configuration.
+    const previousVersion = agent.version;
+    agent.executablePath = replacement.executablePath;
+    agent.version = replacement.version;
+    await log("agent-executable-refreshed", { kind: this.kind, previousVersion, version: agent.version });
+  }
 
   lastDiscoveryFailure(): string | undefined {
     return this.discoveryFailure;
@@ -200,6 +225,7 @@ export abstract class StreamJsonAgent extends ExecutionAgent implements AgentAda
   }
 
   protected async executeTurn(agent:DiscoveredAgent,input:TurnInput):Promise<AgentTurnOutcome> {
+    await this.refreshMissingExecutable(agent);
     if(!adingMcpNeeded(input))return this.executeStream(agent,input);
     const bridge=await startParallelMcp(input,{lenientSchema:this.lenientParallelSchema});
     try {return await this.executeStream(agent,input,bridge.config);}
@@ -309,7 +335,7 @@ export abstract class StreamJsonAgent extends ExecutionAgent implements AgentAda
 
     permissions?.close();
     await log("provider-timing",{kind:this.kind,model,elapsedMs:Date.now()-startedAt,firstEventMs,firstToolMs,toolCounts,cancelled:run.cancelled});
-    const parsed = parseStreamJson(run.stdout, input.threadId);
+    const parsed = parseStreamJson(run.stdout, input.threadId, input.preserveReplyText);
     if(runtimeError)return {ok:false,threadId:parsed.threadId,error:runtimeError,steps,cancelled:false,metrics};
     if (permissions?.error) return {ok:false,threadId:parsed.threadId,error:permissions.error,steps,cancelled:false,metrics};
     // Keep the model's own report: it says what was delivered despite the block,
@@ -444,6 +470,7 @@ export abstract class StreamJsonAgent extends ExecutionAgent implements AgentAda
   }
 
   private async oneShot(agent: DiscoveredAgent, app?: AgentRuntimeConfig, ask?: OneShotAsk): Promise<VerifyResult> {
+    await this.refreshMissingExecutable(agent);
     return withHandshakeDirectory(this.kind, async cwd => {
       const args = await this.verificationArgs(agent, cwd, await handshakeHelp(agent.executablePath, this.kind, cwd), app, ask);
       const run = await this.runner.run(`${agent.localUuid}::verify`, {
@@ -456,7 +483,8 @@ export abstract class StreamJsonAgent extends ExecutionAgent implements AgentAda
       });
       const parsed = parseStreamJson(run.stdout);
       if (parsed.message && !parsed.error && !run.failure) {
-        return { ok: true, text: parsed.message.slice(0, 200) };
+        // The 200-character cap is for the connectivity check display; a question asked through askOnce needs the full answer.
+        return { ok: true, text: ask ? parsed.message : parsed.message.slice(0, 200) };
       }
       return {
         ok: false,

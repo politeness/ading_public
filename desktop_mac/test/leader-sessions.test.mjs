@@ -33,7 +33,7 @@ try {
    return {...ok(script.shift()??'SKIP'),threadId};
   }}});
  const settle=async()=>{for(let i=0;i<600;i++){await sleep(5);if(i>20&&!scheduler.runtimeSnapshot().agents.length&&!scheduler.pendingTurns.size)return;}throw Error('timeout');};
- const conversation=await store.createConversation({name:'分工',memberIds:[leader.userId,worker.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const conversation=await store.createConversation({name:'分工',memberIds:[leader.userId,worker.userId],leaderId:leader.userId});
  const id=conversation.conversationId;
  scheduler.engagedConversations.add(id);
 

@@ -1,6 +1,8 @@
 import { LocalScheduler, type LocalSchedulerDeps, type SchedulerContext } from "./local-scheduler";
 import type { CreateConversationInput, Store } from "../store/store";
 import { tm } from "../i18n";
+import { brainstorming } from "./brainstorm";
+import { isConnectionFailure } from "./connection-recovery";
 
 /** Each task owns its queue, sessions and CLI process keys; Agent identity remains shared. */
 export class ConversationScheduler {
@@ -80,16 +82,40 @@ export class ConversationScheduler {
     return this.forConversation(message.conversationId).receiveRemoteAgentMessage(message);
   }
   /** Availability of a local or remote Agent changed: re-decide which computer coordinates */
-  async teamAvailabilityChanged(): Promise<void> {
+  async teamAvailabilityChanged(verifiedKind?: AgentKind): Promise<void> {
     if (this.shuttingDown) return;
     // Open group tasks are checked even before they receive a message this session, so work stranded on a computer that left is released.
-    const open = (await this.deps.store.listConversations()).filter(c => c.type === "GROUP" && c.status === "ACTIVE" && !c.paused &&
-      ((c.brainstorm && c.brainstorm.phase !== "ready") || c.workPlan?.some(w => w.status !== "done")));
-    const ids = new Set([...this.conversations.keys(), ...open.map(c => c.conversationId)]);
+    // Other tasks are only opened when the verified Agent kind may have been interrupted there, so a probe never loads all history.
+    const open: string[] = [];
+    for (const c of await this.deps.store.listConversations()) {
+      if (this.conversations.has(c.conversationId) || c.status !== "ACTIVE" || c.paused) continue;
+      if ((c.type === "GROUP" && (brainstorming(c) || c.workPlan?.some(w => w.status !== "done"))) ||
+          (verifiedKind && await this.mayResumeConnection(c, verifiedKind))) open.push(c.conversationId);
+    }
+    const ids = new Set([...this.conversations.keys(), ...open]);
     await Promise.all([...ids].map(id => {
       const firstLook = !this.conversations.has(id);
-      return this.forConversation(id).teamAvailabilityChanged(firstLook);
+      return this.forConversation(id).teamAvailabilityChanged(firstLook, verifiedKind);
     }));
+  }
+  /**
+   * Cheap pre-check for a task not yet loaded this session, mirroring what LocalScheduler can act on
+   * after a successful probe: a connection-failure recovery saved for a local Agent of that kind, or
+   * (group) owed human input while that kind leads. Without a session listing, keep the full check.
+   */
+  private async mayResumeConnection(conversation: Conversation, kind: AgentKind): Promise<boolean> {
+    const sessions = this.deps.store.listAgentSessions &&
+      (await this.deps.store.listAgentSessions(conversation.conversationId)).filter(s => s.recovery && isConnectionFailure(s.recovery.error));
+    let owed: boolean | undefined;
+    for (const member of conversation.members) {
+      const user = await this.deps.store.getUser(member.userId);
+      if (!user?.isAgent || user.remote || user.kind !== kind) continue;
+      if (conversation.type === "GROUP" && member.role === "LEADER" &&
+          (owed ??= !!(await this.deps.store.listOwedMessages?.(conversation.conversationId))?.length)) return true;
+      if (member.paused || member.ownerPaused || member.role === "OBSERVER") continue;
+      if (!sessions || sessions.some(s => s.agentUserId === member.userId || s.agentUserId.startsWith(`${member.userId}::`))) return true;
+    }
+    return false;
   }
   /** After restart, re-trigger a user message from the "unfinished" ledger */
   redeliverUserMessage(message: Message): Promise<boolean> {

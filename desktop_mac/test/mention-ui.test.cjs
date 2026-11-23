@@ -62,6 +62,14 @@ const assert=require('node:assert/strict');
   assert.ok(replyBox.gap>=0&&replyBox.gap<=12,'Button hugs the right of the message');
   assert.ok(Math.abs(replyBox.bottom)<1,'Button bottom aligns with message bottom');
 
+  // Copy sits next to reply, and also on my own messages (left of the bubble)
+  assert.equal(await run(`[...document.querySelector('[data-scroll-key="people-3"] .message-actions').children].map(b=>b.classList.contains('message-reply')?'reply':b.classList.contains('message-copy')?'copy':'?').join()`),'reply,copy');
+  assert.equal(await run(`document.querySelector('[data-scroll-key="people-3"] .message-copy').dataset.tooltip`),'复制');
+  await run(`navigator.clipboard.writeText=async text=>{window.__copied=text};0`);
+  await click('[data-scroll-key="people-3"] .message-copy');await wait();
+  assert.equal(await run(`window.__copied`),await run(`document.querySelector('[data-scroll-key="people-3"] .bubble').textContent.trim()`),'Copy writes the message text');
+  assert.equal(await run(`document.querySelector('[data-scroll-key="people-3"] .message-copy').dataset.tooltip`),'已复制');
+
   // Replying to someone's message: show the quote, auto-@ at the start, send with the original message; cancelling also removes the auto-added @
   await type('');await wait();
   await click('[data-scroll-key="people-3"] .message-reply');await wait();

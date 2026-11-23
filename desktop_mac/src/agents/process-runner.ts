@@ -13,7 +13,7 @@ import { p } from "../prompt-language";
  */
 
 /** No output for longer than this is considered stuck */
-export const INACTIVITY_TIMEOUT_MS = 10 * 60_000;
+export const INACTIVITY_TIMEOUT_MS = 30 * 60_000;
 /** Kill when stdout exceeds this, so a runaway run can't exhaust memory */
 export const MAX_STDOUT_BYTES = 20 * 1024 * 1024;
 
@@ -44,7 +44,7 @@ export interface RunOptions {
   backgroundPriority?: boolean;
   /**
    * Hard limit for the whole turn. Without it only the idle timeout is the fallback —
-   * which is 10 minutes, too long for a connectivity check: a person on the page can't wait that long.
+   * which is 30 minutes, too long for a connectivity check: a person on the page can't wait that long.
    */
   timeoutMs?: number;
   /** Called once per complete stdout line. Parsing, progress and counting hook in here */

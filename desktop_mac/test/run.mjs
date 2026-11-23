@@ -8,6 +8,9 @@
 import { spawnSync } from "node:child_process";
 
 const tests = [
+  "test/codex-session-home.test.mjs",
+  "test/message-history.test.mjs",
+  "test/cloud-error-text.test.mjs",
   "test/infinite-list.test.mjs",
   "test/link-preview.test.mjs",
   "test/message-math.test.mjs",
@@ -38,6 +41,7 @@ const tests = [
   "test/quick-conversation.test.mjs",
   "test/brainstorm.test.mjs",
   "test/team-coordination.test.mjs",
+  "test/stale-input.test.mjs",
   "test/direct-chat.test.mjs",
   "test/reply-attachments.test.mjs",
   "test/conversation-concurrency.test.mjs",
@@ -49,6 +53,7 @@ const tests = [
   "test/proposal-reply.test.mjs",
   "test/message-retention-idle.test.mjs",
   "test/connection-recovery.test.mjs",
+  "test/reconnect-continuation.test.mjs",
   "test/workspace.test.mjs",
   "test/streamjson.test.mjs",
   "test/stream-permissions.test.mjs",
@@ -58,6 +63,7 @@ const tests = [
   "test/download-progress.test.mjs",
   "test/desktop-app-registry.test.mjs",
   "test/agent-adapter.test.mjs",
+  "test/cli-executable-refresh.test.mjs",
   "test/qwen-code.test.mjs",
   "test/new-agents.test.mjs",
   "test/acp-adaptation.test.mjs",
@@ -114,6 +120,7 @@ const tests = [
   "test/unread.test.mjs",
   "test/seed.test.mjs",
   "test/readiness.test.mjs",
+  "test/readiness-refresh.test.mjs",
   "test/app-update.test.mjs",
   "test/app-install.test.mjs",
   "test/i18n.test.mjs",

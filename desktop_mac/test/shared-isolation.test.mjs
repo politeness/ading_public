@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import assert from 'node:assert/strict';
 import {chmod,lstat,mkdir,mkdtemp,readFile,readlink,readdir,rm,symlink,writeFile} from 'node:fs/promises';
 import os from 'node:os';
@@ -19,6 +20,7 @@ import {CopilotAdapter} from '../dist/agents/acp-providers.js';
 
 setMainLanguage('zh');
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-shared-isolation-'));
+configureCodexSessionRoot(path.join(dir,'codex-sessions'));
 const base={prompt:'x',workspacePath:dir,fullAccess:true,permissionMode:'unattended',onProgress:()=>undefined};
 const isolated={...base,isolateMemory:true};
 const valueOf=(args,flag)=>args[args.indexOf(flag)+1];
@@ -100,7 +102,8 @@ try {
    const adapter=new CodexAdapter(),agent={kind:'codex',localUuid:'c',executablePath:fake,version:'x'};
    const plain=await adapter.executeTurn(agent,base);assert.equal(plain.ok,true);
    let seen=JSON.parse(await readFile(capture,'utf8'));
-   assert.equal(seen.env.CODEX_HOME,home,'an unshared Codex keeps its own home');
+   assert.notEqual(seen.env.CODEX_HOME,home,'ADing owns its session home');
+   assert.equal(await readFile(path.join(seen.env.CODEX_HOME,'AGENTS.md'),'utf8'),'global','an unshared Codex keeps its native memory');
    assert.ok(!seen.argv.includes('features.memories=false'),'and its native memory');
    const outcome=await adapter.executeTurn(agent,isolated);assert.equal(outcome.ok,true);
    seen=JSON.parse(await readFile(capture,'utf8'));
@@ -112,7 +115,7 @@ try {
    seen=JSON.parse(await readFile(capture,'utf8'));
    assert.ok(seen.argv.includes('resume'),'a resumed isolated turn still resumes');
    await rm(seen.env.CODEX_HOME,{recursive:true,force:true});
-  } finally {if(saved===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=saved;}
+  } finally {await rm(`${home}-ading`,{recursive:true,force:true});if(saved===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=saved;}
  }
  // Qwen: home mirrored, memory base moves into the workspace, settings still there.
  {

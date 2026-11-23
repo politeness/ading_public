@@ -17,7 +17,7 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 UPLOAD="ading_ops.jar.upload-$STAMP"
 # Upload the new jar under a timestamped temp name first: if this step breaks, it only leaves an unused file and the running jar is unaffected
 ssh "$SERVER" "cd '$TARGET' && [ -d backup ] && cat > '$UPLOAD'" < "$JAR" \
-  || { echo "Upload failed; for a first deployment, create the directory per "First deployment" in docs/deployment.md" >&2; exit 1; }
+  || { echo "Upload failed; for a first deployment, create the directory per 'First deployment' in docs/deployment.md" >&2; exit 1; }
 
 # Then use a single ssh connection for backup, replacement, restart, health check and rollback on failure.
 # The remote script is passed verbatim via a single-quoted heredoc so variables expand remotely; arguments are passed on the command line

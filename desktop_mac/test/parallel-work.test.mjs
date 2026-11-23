@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,chmod,rm,mkdir} from 'node:fs/promises';
 import path from 'node:path';import os from 'node:os';
@@ -24,6 +25,7 @@ assert.equal(parallelTool.inputSchema.oneOf.length,2);assert.ok(parallelTool.inp
 assert.match(parallelTool.description,/coverage-audit/);assert.match(parallelTool.description,/依赖图/);assert.match(parallelTool.description,/继续修正直到合格/);assert.doesNotMatch(parallelTool.description,/最多一次|返回父会话|逐参数循环/);assert.match(parallelTool.description,/独立候选/);
 assert.throws(()=>parseParallelJobs({sharedInstruction:'  ',jobs:[{id:'a',instruction:'x',outputs:[]}]},'/tmp'),/公共说明/);
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-parallel-')),bin=path.join(dir,'codex');
+configureCodexSessionRoot(path.join(dir,'codex-sessions'));
 assert.throws(()=>parseParallelJobs({jobs:[{id:'placeholder',instruction:'x',outputs:['IMG_q<按数量递增>.png']}]},dir),/不能使用占位符/);
 assert.equal(outputSpecsConflict(path.join(dir,'IMG_0952_q*.png'),path.join(dir,'IMG_0953_q*.png')),false);
 assert.equal(outputSpecsConflict(path.join(dir,'IMG_0952_q*.png'),path.join(dir,'IMG_0952_q2.png')),true);

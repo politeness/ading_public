@@ -15,6 +15,7 @@ import { compareContacts, compareMembers, matchesContact, recentConversations } 
 import { OverlayController, closeOnBackdropClick } from "./ui/overlays.js";
 import { RuntimeState, queueEntryText } from "./ui/runtime-state.js";
 import { ScrollPosition } from "./ui/scroll-position.js";
+import { MessageHistory } from "./ui/message-history.js";
 
 // Settings -> Permissions -> agent review mode
 const permissionModeInputs = Array.from(document.querySelectorAll<HTMLInputElement>("input[name='permission-mode']"));
@@ -101,6 +102,7 @@ const attachmentImageSave = el<HTMLButtonElement>("#attachment-image-save");
 let previewedAttachment: { conversationId: string | null; attachment: Attachment } | undefined;
 const messagesPane = el<HTMLElement>("#messages");
 const mentionJumpButton = el<HTMLButtonElement>("#mention-jump");
+const latestJumpButton = el<HTMLButtonElement>("#latest-jump");
 const composerReply = el<HTMLElement>("#composer-reply");
 const messageFilters = el<HTMLElement>("#message-filters");
 const filterHumansButton = el<HTMLButtonElement>("#filter-humans");
@@ -366,7 +368,8 @@ const contactIds = new Set<string>();
 let workspaces: Workspace[] = [];
 /** Workspaces collapsed in the sidebar. Only in memory; closing the app restores them to expanded */
 let conversations: Conversation[] = [];
-const messagesByConversation = new Map<string, Message[]>();
+const messageHistory = new MessageHistory((id, options) => bridge.listMessages(id, options));
+const messagesByConversation = messageHistory.messages;
 /** Each task maintains its Agents' actual running state independently. */
 const runtimeState = new RuntimeState();
 const busyAgents = runtimeState.busy;
@@ -804,17 +807,26 @@ function renderConversationAgentMenu(conversation?: Conversation): void {
  * Showing only hours and minutes makes messages from days ago look just sent. So the date is omitted only for today:
  * yesterday shows "Yesterday", within this year add month and day, across years add the year too.
  */
+// Creating Intl formatters is expensive and message lists format hundreds of times per render.
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+function dateFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${intlLocale()}|${JSON.stringify(options)}`;
+  let formatter = dateFormatters.get(key);
+  if (!formatter) { formatter = new Intl.DateTimeFormat(intlLocale(), options); dateFormatters.set(key, formatter); }
+  return formatter;
+}
+
 function formatTime(iso: string): string {
   const at = new Date(iso);
   const now = new Date();
   // Hours and minutes always in 24-hour format, not AM/PM depending on language
-  const clock = new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  const clock = dateFormatter({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
   // Compute the difference in calendar days, not 24-hour periods: 23:00 last night and 01:00 this morning are two hours apart, but it really is yesterday
   const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const days = Math.round((midnight(now) - midnight(at)) / 86_400_000);
   if (days <= 0) return clock;
   if (days === 1) return t("app.time.yesterday", { clock });
-  const day = new Intl.DateTimeFormat(intlLocale(), at.getFullYear() === now.getFullYear()
+  const day = dateFormatter(at.getFullYear() === now.getFullYear()
     ? { month: "long", day: "numeric" }
     : { year: "numeric", month: "long", day: "numeric" }).format(at);
   return t("app.time.dated", { day, clock });
@@ -978,7 +990,8 @@ function conversationButton(conversation: Conversation): HTMLElement {
       t("app.conversation.deleteCopy", { name }),
       async () => {
         await bridge.deleteConversation(id);
-        messagesByConversation.delete(id);
+        messageHistory.delete(id);
+        renderedMessages.delete(id);
         if (selectedId === id) selectedId = null;
         await refreshConversations();
         if (!selectedId && conversations.length) {
@@ -2612,8 +2625,9 @@ function appendLinkPreviews(bubble: HTMLElement): void {
     card.append(header, description, site);
     bubble.append(card);
     void bridge.linkPreview?.(url).then(preview => {
-      if (!preview || !card.isConnected) return;
-      const restoreScroll = messageScroll.beforeRender(selectedId ? `${selectedId}:${messageFilter}` : null);
+      if (!preview) return;
+      // Cached rows of other conversations keep the preview; only the visible pane needs its scroll kept.
+      const restoreScroll = card.isConnected ? messageScroll.beforeRender(selectedId ? `${selectedId}:${messageFilter}` : null) : undefined;
       title.textContent = preview.title;
       description.textContent = preview.description;
       description.hidden = !preview.description;
@@ -2622,7 +2636,7 @@ function appendLinkPreviews(bubble: HTMLElement): void {
         thumbnail.src = preview.image;
         thumbnail.hidden = false;
       }
-      restoreScroll();
+      restoreScroll?.();
     }).catch(() => { /* Keep the working link when metadata is unavailable. */ });
   }
 }
@@ -2732,6 +2746,34 @@ function renderMarkdownBody(container: HTMLElement, markdown: string): void {
   }
 }
 
+function messageActionButton(className: string, icon: IconName, label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `message-action ${className}`;
+  button.innerHTML = iconSvg(icon);
+  button.dataset.tooltip = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+async function copyMessageText(button: HTMLButtonElement, text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    setStatus(t("app.message.copyFailed", { error: describeError(error) }), "error", false, selectedId ? chatKey(selectedId) : currentComposerKey());
+    return;
+  }
+  button.innerHTML = iconSvg("check");
+  button.classList.add("copied");
+  button.dataset.tooltip = t("app.message.copied");
+  setTimeout(() => {
+    button.innerHTML = iconSvg("copy");
+    button.classList.remove("copied");
+    button.dataset.tooltip = t("app.message.copy");
+  }, 1500);
+}
+
 function messageElement(message: Message, conversation: Conversation, thinking = false): HTMLElement {
   const mine = message.senderId === me?.userId;
   const sender = users.get(message.senderId);
@@ -2778,7 +2820,7 @@ function messageElement(message: Message, conversation: Conversation, thinking =
     name.textContent = sender.displayName;
     name.dataset.tooltip = t(conversation.members.some(member => member.userId === sender.userId) ? "app.message.mentionSender" : "app.message.viewProfile", { name: sender.displayName });
     // The name is for @-mentioning, the avatar for viewing the profile; when @ isn't possible (left the group, composer unavailable) the profile is still offered
-    name.addEventListener("click", () => { if (!mentionInComposer(sender)) openReadOnlyProfile(sender); });
+    name.addEventListener("click", () => { const latest = users.get(sender.userId) ?? sender; if (!mentionInComposer(latest)) openReadOnlyProfile(latest); });
     if (thinking) {
       const line = document.createElement("div");
       line.className = "message-sender-line";
@@ -2789,22 +2831,28 @@ function messageElement(message: Message, conversation: Conversation, thinking =
     }
   }
   const attachments = message.attachments?.length ? attachmentsElement(message.conversationId, message.attachments) : null;
+  const actions: HTMLButtonElement[] = [];
   if (!mine && message.type === "USER" && !message.internal && !message.failed && message.status === "SENT") {
-    // The reply button sits to the right of the message, level with its bottom; message content (bubble and attachments) is wrapped separately, the time stays below
+    actions.push(messageActionButton("message-reply", "reply", t("app.message.reply"), () => startReply(message)));
+  }
+  const copyText = displayedMessageContent(message);
+  if (copyText.trim()) {
+    const copy = messageActionButton("message-copy", "copy", t("app.message.copy"), () => void copyMessageText(copy, copyText));
+    actions.push(copy);
+  }
+  if (actions.length) {
+    // Hover actions sit beside the message, level with its bottom; message content (bubble and attachments) is wrapped separately, the time stays below
     const line = document.createElement("div");
     line.className = "message-line";
     const content = document.createElement("div");
     content.className = "message-content";
     content.append(bubble);
     if (attachments) content.append(attachments);
-    const reply = document.createElement("button");
-    reply.type = "button";
-    reply.className = "message-reply";
-    reply.innerHTML = iconSvg("reply");
-    reply.dataset.tooltip = t("app.message.reply");
-    reply.setAttribute("aria-label", t("app.message.reply"));
-    reply.addEventListener("click", () => startReply(message));
-    line.append(content, reply);
+    const group = document.createElement("div");
+    group.className = "message-actions";
+    group.append(...actions);
+    if (mine) line.append(group, content);
+    else line.append(content, group);
     body.append(line, time);
   } else {
     body.append(bubble);
@@ -2819,7 +2867,8 @@ function messageElement(message: Message, conversation: Conversation, thinking =
     if (avatar instanceof HTMLButtonElement) {
       avatar.type = "button";
       avatar.setAttribute("aria-label", t("app.message.viewProfile", { name: person.displayName }));
-      avatar.addEventListener("click", () => openReadOnlyProfile(person));
+      // Rows are reused across renders, so look the profile up when clicked.
+      avatar.addEventListener("click", () => openReadOnlyProfile(users.get(person.userId) ?? person));
     } else {
       avatar.title = person.displayName;
     }
@@ -3214,7 +3263,8 @@ function renderProcessPanel(): void {
   const restoreScroll=processScroll.beforeRender(selectedId ? `${selectedId}:${processAgentFilterId ?? "all"}` : null);
   processFeed.replaceChildren();
   processPanel.hidden = !selectedId || !processPanelOpen;
-  if (!selectedId) return;
+  // A closed panel is rebuilt when it opens; building it hidden on every message render is wasted work.
+  if (!selectedId || !processPanelOpen) return;
 
   const conversation = conversationById(selectedId);
   if (!conversation) return;
@@ -3343,17 +3393,49 @@ function renderProcessAgentFilters(conversation: Conversation): void {
 }
 
 const messageScroll = new ScrollPosition(messagesPane);
+const messageSizeObserver = new ResizeObserver(() => renderLatestJump());
+
+function renderLatestJump(): void {
+  latestJumpButton.hidden = !selectedId || messagesPane.clientHeight <= 0
+    || messagesPane.scrollHeight - messagesPane.clientHeight - messagesPane.scrollTop <= 8;
+}
+
+latestJumpButton.addEventListener("click", () => {
+  messagesPane.scrollTop = messagesPane.scrollHeight;
+  renderLatestJump();
+});
+
+/** Everything messageElement reads besides the click-time state; same key means the existing element is still correct. */
+const messageJson = new WeakMap<Message, string>();
+type MessageRenderKey = { body: string; context: string };
+function messageRenderKey(message: Message, conversation: Conversation, thinking: boolean): MessageRenderKey {
+  const person = (id: string) => { const user = id === me?.userId ? me : users.get(id); return user ? [user.displayName, user.avatarUrl, user.isAgent, user.kind] : null; };
+  // Serializing long agent replies and their steps on every render is costly; message objects are replaced on change,
+  // except delivery status and server time corrections, which are mutated in place and so stay outside the cached part.
+  let body = messageJson.get(message);
+  if (body === undefined) { body = JSON.stringify(message); messageJson.set(message, body); }
+  return { body, context: JSON.stringify([
+    message.status, message.createdAt, currentLanguage(), mode, me?.userId, person(message.senderId), me && person(me.userId),
+    message.mentions?.map(id => users.get(id)?.displayName), message.quote ? userName(message.quote.senderId) : null,
+    conversation.type, conversation.members.some(member => member.userId === message.senderId), thinking, formatTime(message.createdAt)
+  ]) };
+}
+
+/** The highlight must survive list re-renders while older pages keep arriving. */
+let flashedMessage: { id: string; until: number } | undefined;
+/** Rendered rows per conversation, so re-renders keep loaded images, link previews and button state. */
+const renderedMessages = new Map<string, Map<string, { key: MessageRenderKey; element: HTMLElement }>>();
+const RENDERED_CONVERSATION_LIMIT = 8;
 
 function renderMessages(): void {
   const restoreScroll = messageScroll.beforeRender(selectedId ? `${selectedId}:${messageFilter}` : null);
-  messagesPane.replaceChildren();
+  messageSizeObserver.disconnect();
+  messageSizeObserver.observe(messagesPane);
+  latestJumpButton.hidden = true;
   renderMessageFilters();
-  if (!selectedId) {
-    renderProcessPanel();
-    return;
-  }
-  const conversation = conversationById(selectedId);
-  if (!conversation) {
+  const conversation = selectedId ? conversationById(selectedId) : undefined;
+  if (!selectedId || !conversation) {
+    messagesPane.replaceChildren();
     renderProcessPanel();
     return;
   }
@@ -3372,12 +3454,35 @@ function renderMessages(): void {
       }
     }
   }
+  const cache = renderedMessages.get(selectedId);
+  const next = new Map<string, { key: MessageRenderKey; element: HTMLElement }>();
+  const now = Date.now();
+  let cursor = messagesPane.firstChild;
   for (const message of visible) {
-    messagesPane.append(messageElement(message, conversation, thinkingOn.has(message.messageId)));
+    const thinking = thinkingOn.has(message.messageId);
+    const key = messageRenderKey(message, conversation, thinking);
+    const cached = cache?.get(message.messageId);
+    const element = cached && cached.key.body === key.body && cached.key.context === key.context ? cached.element : messageElement(message, conversation, thinking);
+    element.classList.toggle("mention-target", flashedMessage?.id === message.messageId && flashedMessage.until > now);
+    next.set(message.messageId, { key, element });
+    // Only touch the DOM where rows were added, changed or reordered.
+    if (element === cursor) cursor = cursor.nextSibling;
+    else messagesPane.insertBefore(element, cursor);
   }
+  while (cursor) { const following = cursor.nextSibling; cursor.remove(); cursor = following; }
+  renderedMessages.delete(selectedId);
+  renderedMessages.set(selectedId, next);
+  while (renderedMessages.size > RENDERED_CONVERSATION_LIMIT) renderedMessages.delete(renderedMessages.keys().next().value!);
   renderProcessPanel();
   restoreScroll();
   renderMentionJump();
+  renderLatestJump();
+  // Images and math can change message heights after the initial render.
+  for (const child of messagesPane.children) messageSizeObserver.observe(child);
+  // Internal messages / filters can leave a page too short to scroll.
+  if (messagesPane.clientHeight > 0 && messagesPane.scrollHeight <= messagesPane.clientHeight) {
+    queueMicrotask(() => void loadOlderMessages(true));
+  }
 }
 
 /** @-mentions read when opening the conversation: once marked read they can't be found, so record them for the floating button; drop them once clicked or scrolled to */
@@ -3391,6 +3496,7 @@ function flashMessage(target: HTMLElement): void {
   target.classList.remove("mention-target");
   void target.offsetWidth;
   target.classList.add("mention-target");
+  if (target.dataset.scrollKey) flashedMessage = { id: target.dataset.scrollKey, until: Date.now() + 1600 };
 }
 function flashMentionTarget(target: HTMLElement): void {
   flashMessage(target);
@@ -3399,18 +3505,33 @@ function flashMentionTarget(target: HTMLElement): void {
 }
 function renderMentionJump(): void {
   const target = mentionTarget();
-  if (!target) { mentionJumpButton.hidden = true; return; }
+  if (!target) {
+    const seq = selectedId ? mentionJumps.get(selectedId) : undefined;
+    mentionJumpButton.hidden = !(selectedId && seq && messageHistory.hasOlder(selectedId)
+      && seq < (messagesByConversation.get(selectedId)?.[0]?.seq ?? 0));
+    return;
+  }
   const box = target.getBoundingClientRect(), pane = messagesPane.getBoundingClientRect();
   if (box.bottom > pane.top && box.top < pane.bottom) flashMentionTarget(target);
   else mentionJumpButton.hidden = false;
 }
-mentionJumpButton.addEventListener("click", () => {
-  const target = mentionTarget();
+mentionJumpButton.addEventListener("click", async () => {
+  const seq = selectedId ? mentionJumps.get(selectedId) : undefined;
+  const target = seq ? await revealHistoryMessage(message => message.seq === seq) : null;
+  if (target === undefined) return;
   if (!target) { mentionJumpButton.hidden = true; return; }
   target.scrollIntoView({ block: "center" });
   flashMentionTarget(target);
 });
-messagesPane.addEventListener("scroll", () => { if (!mentionJumpButton.hidden) renderMentionJump(); }, { passive: true });
+messagesPane.addEventListener("scroll", () => {
+  renderLatestJump();
+  if (!mentionJumpButton.hidden) renderMentionJump();
+  if (messagesPane.scrollTop <= 120) void loadOlderMessages();
+}, { passive: true });
+// At the very top a failed request can be retried without moving away first.
+messagesPane.addEventListener("wheel", event => {
+  if (event.deltaY < 0 && messagesPane.scrollTop <= 120) void loadOlderMessages();
+}, { passive: true });
 
 function refreshPendingBubbles(): void {
   scheduleProcessPanelRender();
@@ -3859,8 +3980,9 @@ function messageQuoteElement(quote: MessageQuote, replyTo?: string): HTMLElement
   const text = document.createElement("span");
   text.textContent = quote.text;
   element.append(name, text);
-  element.addEventListener("click", () => {
-    const target = replyTo ? messagesPane.querySelector<HTMLElement>(`[data-scroll-key="${CSS.escape(replyTo)}"]`) : null;
+  element.addEventListener("click", async () => {
+    const target = replyTo ? await revealHistoryMessage(message => message.messageId === replyTo) : null;
+    if (target === undefined) return;
     if (!target) { setStatus(t("app.message.quoteMissing"), "info", true); return; }
     target.scrollIntoView({ block: "center" });
     flashMessage(target);
@@ -3942,9 +4064,52 @@ function replaceContacts(list: UserRef[]): void {
 }
 
 async function loadMessages(conversationId: string): Promise<void> {
-  const list = await bridge.listMessages(conversationId, { limit: 300 });
-  const merged = new Map([...(messagesByConversation.get(conversationId) ?? []), ...list].map(message => [message.messageId, message]));
-  messagesByConversation.set(conversationId, [...merged.values()].sort((a, b) => a.seq - b.seq));
+  await messageHistory.load(conversationId);
+}
+
+const olderMessageLoads = new Set<string>();
+/** Quote / unread navigation may refer to a message outside the initial page. */
+async function revealHistoryMessage(matches: (message: Message) => boolean): Promise<HTMLElement | null | undefined> {
+  const id = selectedId, generation = dataGeneration;
+  if (!id) return null;
+  try {
+    let message = messagesByConversation.get(id)?.find(matches);
+    while (!message && messageHistory.hasOlder(id)) {
+      if (!await messageHistory.loadOlder(id)) break;
+      if (selectedId !== id || generation !== dataGeneration) return undefined;
+      message = messagesByConversation.get(id)?.find(matches);
+    }
+    if (selectedId !== id || generation !== dataGeneration) return undefined;
+    renderMessages();
+    return message ? messagesPane.querySelector<HTMLElement>(`[data-scroll-key="${CSS.escape(message.messageId)}"]`) : null;
+  } catch (error) {
+    if (selectedId === id && generation === dataGeneration) {
+      setStatus(t("app.messages.loadFailed", { error: describeError(error) }), "error", false, chatKey(id));
+    }
+    return undefined;
+  }
+}
+
+/** Automatic fills follow every render; after a failure they wait, while scrolling still retries at once. */
+const olderLoadFailedAt = new Map<string, number>();
+const AUTO_OLDER_RETRY_MS = 5000;
+async function loadOlderMessages(automatic = false): Promise<void> {
+  const id = selectedId, generation = dataGeneration;
+  if (!id || messagesPane.clientHeight <= 0 || !messageHistory.hasOlder(id) || olderMessageLoads.has(id)) return;
+  if (automatic && Date.now() - (olderLoadFailedAt.get(id) ?? 0) < AUTO_OLDER_RETRY_MS) return;
+  olderMessageLoads.add(id);
+  try {
+    const loaded = await messageHistory.loadOlder(id);
+    olderLoadFailedAt.delete(id);
+    if (loaded && generation === dataGeneration && selectedId === id) renderMessages();
+  } catch (error) {
+    olderLoadFailedAt.set(id, Date.now());
+    if (generation === dataGeneration && selectedId === id) {
+      setStatus(t("app.messages.loadFailed", { error: describeError(error) }), "error", false, chatKey(id));
+    }
+  } finally {
+    olderMessageLoads.delete(id);
+  }
 }
 
 let appWindowActive=false;
@@ -4015,6 +4180,8 @@ async function selectConversation(
   renderConversationList();
   renderHeader();
   syncComposer();
+  // Show cached rows right away instead of leaving the previous conversation on screen while the page loads.
+  renderMessages();
   let loaded=true;
   try {
     await loadMessages(conversationId);
@@ -4023,9 +4190,10 @@ async function selectConversation(
     if (generation !== dataGeneration) return;
     setStatus(t("app.messages.loadFailed", { error: describeError(error) }), "error", false, chatKey(conversationId));
   }
+  if (generation !== dataGeneration || selectedId !== conversationId) return;
   renderMessages();
 
-  if(loaded&&selectedId===conversationId)markVisibleConversationRead();
+  if(loaded)markVisibleConversationRead();
   input.focus();
 }
 
@@ -6549,9 +6717,7 @@ bridge.onStoreEvent((event) => {
   if (event.type === "message") {
     ++conversationRefreshGeneration;
     const list = messagesByConversation.get(event.conversationId);
-    if (list && !list.some((m) => m.messageId === event.message.messageId)) {
-      list.push(event.message);
-    }
+    if (list) messageHistory.merge(event.conversationId, [event.message]);
     // Once the same execution steps are durably attached to the final message,
     // discard only that Agent's transient copy to avoid duplicate process runs.
     if(event.message.steps?.length){
@@ -7277,6 +7443,8 @@ function showDataSwitch(target: "local" | "account"): void {
 
 bridge.onDataSwitching(({ target }) => {
   dataGeneration++;
+  messageHistory.clear();
+  renderedMessages.clear();
   temporaryUnreadConversationId = undefined;
   composerDrafts.clear();
   chatNotices.clear();

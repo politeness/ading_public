@@ -222,8 +222,6 @@ function normalize(value: unknown): LeaderControl | undefined {
     control.verdict = raw.verdict as "pass" | "retry";
     control.evidence = raw.evidence.trim();
   }
-  if (raw.mode === "execution" || raw.mode === "discussion") control.mode = raw.mode;
-  if (action === "organize" && !control.mode) return undefined;
   if (typeof raw.assignmentId === "string") control.assignmentId = raw.assignmentId.trim();
   if (Array.isArray(raw.assignments)) {
     control.assignments = raw.assignments.filter((entry): entry is {to: string; assignment: string} =>

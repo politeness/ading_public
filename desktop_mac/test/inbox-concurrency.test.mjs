@@ -52,13 +52,22 @@ try {
  await scheduler.stopConversation(t.conversationId);await until(()=>active.size===0 && scheduler.runtimeSnapshot().agents.length===0);
  const owner=await store.currentUser();assert.equal((await store.listMessages(t.conversationId)).filter(m=>m.senderId===owner.userId).length,7);
  // Group leader can dispatch independent work while its own execution is still blocked.
- const g=await store.createConversation({name:'pipeline',memberIds:[leader.userId,worker.userId],leaderId:leader.userId,charter:{mode:'execution'}});
- await scheduler.sendUserMessage({conversationId:g.conversationId,clientMessageId:'go',content:'开始加工'});await until(()=>active.size===1);
- const gp=[...active.values()][0];
- await scheduler.sendUserMessage({conversationId:g.conversationId,clientMessageId:'split',content:'把独立核查分给小cc'});await until(()=>active.size===2);
+ // An Agent has already spoken, so the group is under way and no joint brainstorm opens.
+ const g=await store.createConversation({name:'pipeline',memberIds:[leader.userId,worker.userId],leaderId:leader.userId});
+ await store.appendMessage({conversationId:g.conversationId,clientMessageId:'earlier-reply',senderId:leader.userId,content:'已了解加工流程。',agentReply:{turnId:'earlier',inputSeq:0,raw:'已了解加工流程。',newerInput:false}});
+ // A human message reaches every Agent member; the non-Leader without an assignment is tool-less and skips.
+ const isWorkerTask=x=>x.d.kind==='claude-code'&&!x.d.localUuid.includes('::inbox:');
+ await scheduler.sendUserMessage({conversationId:g.conversationId,clientMessageId:'go',content:'开始加工'});await until(()=>active.size===2);
+ const gp=[...active.values()].find(x=>x.d.kind==='codex');const gw=[...active.values()].find(isWorkerTask);
+ assert.equal(gp.input.discussionOnly,false);assert.equal(gw.input.discussionOnly,true);
+ gw.finish(ok('SKIP'));await until(()=>active.size===1&&active.has(gp.d.localUuid));
+ await scheduler.sendUserMessage({conversationId:g.conversationId,clientMessageId:'split',content:'把独立核查分给小cc'});
+ await until(()=>[...active.values()].some(x=>x.d.localUuid.includes('::inbox:'))&&[...active.values()].some(isWorkerTask));
+ const gws=[...active.values()].find(isWorkerTask);assert.equal(gws.input.discussionOnly,true);gws.finish(ok('SKIP'));
+ await until(()=>![...active.values()].some(isWorkerTask));
  const gi=[...active.values()].find(x=>x.d.localUuid.includes('::inbox:'));
  gi.finish(ok('已安排独立核查。\n'+JSON.stringify({control:{action:'plan',work:[{id:'check',assignment:'核对独立输入',candidates:[worker.userId],dependsOn:[],outputs:[],acceptance:'实际核查',readOnly:true}]}})));
- await until(()=>[...active.values()].some(x=>x.d.kind==='claude-code'));
+ await until(()=>[...active.values()].some(isWorkerTask));
  assert.ok(active.has(gp.d.localUuid));assert.equal((await store.getConversation(g.conversationId)).workPlan[0].status,'active');
  // Execution failures also reach the busy leader immediately.
  const failed=await store.appendMessage({conversationId:g.conversationId,clientMessageId:'worker-failure',senderId:worker.userId,type:'SYSTEM',failed:true,content:'工具执行失败，需要协调',mentions:[leader.userId]});

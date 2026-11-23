@@ -1,4 +1,5 @@
 import { p } from "../prompt-language";
+import { isHumanInput } from "./human-input";
 
 export interface GroupContextSelection {
   anchorSeq: number;
@@ -11,7 +12,7 @@ export async function selectGroupContext(
   messages: Message[], humanIds: Set<string>, conversation: Conversation,
   ask: (prompt: string) => Promise<{ok: boolean; text: string}>
 ): Promise<GroupContextSelection | undefined> {
-  const anchor = [...messages].reverse().find(m => humanIds.has(m.senderId) && m.type === "USER" && !m.internal && !m.failed);
+  const anchor = [...messages].reverse().find(m => isHumanInput(m, humanIds) && m.type === "USER" && !m.internal && !m.failed);
   if (!anchor) return undefined;
   const protectedIds = new Set([anchor.messageId]);
   // Preserve quoted originals transitively, including files attached there.
@@ -26,7 +27,7 @@ export async function selectGroupContext(
   const candidates = messages.filter(m => m.seq < anchor.seq && !protectedIds.has(m.messageId) &&
     !(m.coordination && activeIds.has(m.coordination.id)));
   if (!candidates.length) return {anchorSeq:anchor.seq, excludedSeqs:[]};
-  const entry = (m: Message) => ({seq:m.seq, sender:m.senderId, human:humanIds.has(m.senderId),
+  const entry = (m: Message) => ({seq:m.seq, sender:m.senderId, human:isHumanInput(m, humanIds),
     content:m.content, quote:m.quote, replyTo:m.replyTo, coordination:m.coordination,
     attachments:m.attachments?.map(a => ({name:a.name, kind:a.kind}))});
   const excluded = new Set<number>();
@@ -49,9 +50,11 @@ export async function selectGroupContext(
       recent:messages.filter(m => m.seq < anchor.seq).slice(-6).map(entry),
       goal:conversation.charter, activeWork:conversation.workPlan?.filter(w => w.status !== "done"), candidates:items.map(entry)});
     const result = await ask(prompt);
-    if (!result.ok) throw new Error("group context classifier unavailable");
+    // Provider output may quote conversation content and logs are uploaded with issue reports, so errors carry only its length.
+    if (!result.ok) throw new Error(`group context classifier unavailable (${result.text.length} chars)`);
     const raw = result.text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
-    const parsed: unknown = JSON.parse(raw);
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { throw new Error(`group context selection is not JSON (${raw.length} chars)`); }
     const seqs = (parsed as {excludeSeqs?:unknown})?.excludeSeqs;
     const allowed = new Set(items.map(m => m.seq));
     if (!Array.isArray(seqs) || seqs.some(seq => !Number.isInteger(seq) || !allowed.has(seq))) throw new Error("invalid group context selection");

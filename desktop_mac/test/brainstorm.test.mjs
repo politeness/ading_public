@@ -27,7 +27,7 @@ const h=await harness(async(call,{agents})=>{
  if(call.phase==='synthesize')return ok('方案：核查输入，保存独立报告，以实际证据验收。'+ctl({action:'brainstorm',decision:'revise',reason:'请复核报告证据是否足够'}));
  if(call.phase==='review'&&call.d.kind==='qoder-cn')await new Promise(r=>releaseReview=r);
  if(call.phase==='review')return ok('认可，核查与报告保存没有冲突。');
- if(call.phase==='decide')return ok('关键疑虑已解决，进入分工。'+ctl({action:'organize',mode:'execution'}));
+ if(call.phase==='decide')return ok('关键疑虑已解决，进入分工。'+ctl({action:'organize'}));
  return ok('已按方案完成交付。'+ctl({action:'stop',reason:'已交付'}));
 });
 try{
@@ -35,7 +35,9 @@ try{
  assert.equal(peak,3,'leader evidence and peer ideas run concurrently');assert.ok(!h.calls.some(c=>!c.phase));assert.equal((await h.store.getConversation(t.conversationId)).workPlan,undefined,'early assign is not applied');
  assert.ok(!h.calls.some(c=>c.d.kind==='qoder'),'unavailable member never scheduled');
  const report=await h.scheduler.reportConversation(t.conversationId);assert.equal(report.report,true);assert.ok(h.calls.at(-1).d.localUuid.includes('::inbox:'),'report during peer review uses isolated inbox');
- releaseReview();await until(async()=>(await h.store.getConversation(t.conversationId)).brainstorm?.phase==='ready'&&h.calls.some(c=>!c.phase));await until(()=>h.scheduler.runtimeSnapshot().agents.length===0);
+ releaseReview();await until(async()=>(await h.store.getConversation(t.conversationId)).brainstorm?.phase==='ready');await until(()=>h.scheduler.runtimeSnapshot().agents.length===0);await sleep(30);
+ // organize ends the joint discussion and returns to normal chat; it no longer launches an execution turn.
+ assert.ok(!h.calls.some(c=>!c.phase),'organize does not start execution');
  const phases=h.calls.filter(c=>!c.d.localUuid.includes('::inbox:')).map(c=>c.phase);assert.equal(phases.filter(p=>p==='frame').length,0);assert.equal(phases.filter(p=>p==='review').length,2);assert.equal(phases.filter(p=>p==='decide').length,1);
  const msgs=await h.store.listMessages(t.conversationId);assert.equal(msgs[0].content,'核对输入，形成报告，不修改原件');assert.equal(msgs.filter(m=>m.agentReply?.lane==='brainstorm').length,7);assert.ok(msgs.some(m=>m.content==='可并行核查，报告单独保存。'));
  const reloaded=new LocalStore(path.join(h.dir,'data'));await reloaded.init();assert.equal((await reloaded.getConversation(t.conversationId)).brainstorm.phase,'ready');await reloaded.close();
@@ -43,7 +45,7 @@ try{
  const solo=await h.scheduler.createConversation({name:'solo',memberIds:[h.agents[0].userId],initialMessage:'直接做'});await until(()=>h.calls.some(c=>c.input.workspacePath.endsWith(solo.conversationId)));const sc=h.calls.find(c=>c.input.workspacePath.endsWith(solo.conversationId));assert.equal(sc.phase,undefined);assert.equal(sc.input.discussionOnly,false);assert.ok(!sc.input.prompt.includes('你的角色：负责人')); 
 }finally{releaseReview?.();await h.close();}
 // Common path converges in parallel independent views -> leader synthesis, without a ceremonial framing/review round.
-const fast=await harness(async c=>{if(c.phase==='synthesize'){assert.ok(c.input.prompt.includes('原始秒数不可直接比较为执行速度'));return ok('方法和验收已具体确认。'+ctl({action:'organize',mode:'execution'}));}return ok('提出具体方法、首个验证和失败替代。');});
+const fast=await harness(async c=>{if(c.phase==='synthesize'){assert.ok(c.input.prompt.includes('原始秒数不可直接比较为执行速度'));return ok('方法和验收已具体确认。'+ctl({action:'organize'}));}return ok('提出具体方法、首个验证和失败替代。');});
 try{const t=await fast.create();await until(async()=>(await fast.store.getConversation(t.conversationId)).brainstorm?.phase==='ready');const phases=fast.calls.filter(c=>c.phase).map(c=>c.phase);assert.deepEqual(phases,['ideas','ideas','ideas','synthesize']);assert.ok(!phases.includes('frame')&&!phases.includes('review')&&!phases.includes('decide'));}finally{await fast.close();}
 // A final concrete plan is applied directly from synthesis; no second Leader planning turn is required.
 let plannedConversation;
@@ -52,7 +54,7 @@ const directPlan=await harness(async(c,{agents})=>{
  if(!c.phase){assert.ok(c.input.prompt.includes('direct_sample'),'the first execution turn must already carry the final work and must not restate the plan');assert.equal(c.input.threadId,'shared-codex','the same Agent reuses the task-native session from plan discussion through the first sequential work');return {...ok('样本已提交。'),threadId:'shared-codex'};}
  return {...ok('提出具体方法、首个验证和失败替代。'),threadId:`shared-${c.d.kind}`};
 });
-try{plannedConversation=await directPlan.create();await until(async()=>{const t=await directPlan.store.getConversation(plannedConversation.conversationId);return !!t.workPlan?.length||t.brainstorm?.phase==='waiting';});const current=await directPlan.store.getConversation(plannedConversation.conversationId);assert.equal(current.brainstorm.phase,'ready',current.brainstorm.reason);assert.equal(current.charter.mode,'execution');assert.equal(current.workPlan[0].id,'direct_sample');assert.deepEqual(current.workPlan[0].candidates,[directPlan.agents[0].userId],'unique visible member name is normalized without another model round');assert.ok(!directPlan.calls.some(c=>!c.phase&&c.d.kind==='codex'&&!c.input.prompt.includes('direct_sample')));await directPlan.scheduler.stopConversation(plannedConversation.conversationId);}finally{await directPlan.close();}
+try{plannedConversation=await directPlan.create();await until(async()=>{const t=await directPlan.store.getConversation(plannedConversation.conversationId);return !!t.workPlan?.length||t.brainstorm?.phase==='waiting';});const current=await directPlan.store.getConversation(plannedConversation.conversationId);assert.equal(current.brainstorm.phase,'ready',current.brainstorm.reason);assert.equal(current.charter?.mode,undefined,'no internal discussion/execution mode is recorded');assert.equal(current.workPlan[0].id,'direct_sample');assert.deepEqual(current.workPlan[0].candidates,[directPlan.agents[0].userId],'unique visible member name is normalized without another model round');assert.ok(!directPlan.calls.some(c=>!c.phase&&c.d.kind==='codex'&&!c.input.prompt.includes('direct_sample')));await directPlan.scheduler.stopConversation(plannedConversation.conversationId);}finally{await directPlan.close();}
 // If every peer times out, promote the Leader's evidence-backed draft instead of paying for a duplicate synthesis turn.
 let fallbackConversation;
 const draftFallback=await harness(async(c,{agents})=>{
@@ -121,7 +123,7 @@ let oldDecision;let framed=0;
 const n=await harness(async c=>{
  if(c.d.localUuid.includes('::inbox:'))return ok('已收到新要求，方案需要重新确认。');
  if(c.phase==='ideas'&&c.d.kind==='codex')framed++;
- if(c.phase==='synthesize'&&framed===1)return new Promise(resolve=>oldDecision=()=>resolve(ok('旧方案决定。'+ctl({action:'organize',mode:'execution'}))));
+ if(c.phase==='synthesize'&&framed===1)return new Promise(resolve=>oldDecision=()=>resolve(ok('旧方案决定。'+ctl({action:'organize'}))));
  if(c.phase==='synthesize')return ok('新要求已复核。'+ctl({action:'stop',reason:'方案交付'}));
  return ok('共同核对方案。');
 });

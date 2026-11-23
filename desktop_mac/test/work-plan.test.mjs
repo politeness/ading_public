@@ -13,7 +13,7 @@ const busy=new Set();const unavailable=new Set([offline.userId]);const delivered
 const planner=new WorkPlanner({store,available:id=>!unavailable.has(id),busy:id=>busy.has(id),log:async()=>{},deliver:async(t,a,m)=>{if(m.coordination){busy.add(a.userId);delivered.push(m);}}});
 const item=(id,candidates,extra={})=>({id,assignment:`执行 ${id}`,candidates,dependsOn:[],outputs:[`draft/${id}.png`],acceptance:'对照原件确认完整并提供文件证据',readOnly:false,...extra});
 try {
- const conversation=await store.createConversation({name:'动态补位',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution'}});
+ const conversation=await store.createConversation({name:'动态补位',memberIds:agents.map(a=>a.userId),leaderId:leader.userId});
  const work=[item('hard',[leader.userId]),item('a',[fast.userId,slow.userId]),item('b',[fast.userId,slow.userId]),item('c',[fast.userId,slow.userId]),item('final',[leader.userId],{dependsOn:['a','b','c','hard']}),item('offline',[offline.userId])];
  assert.equal(parseLeaderControl(JSON.stringify({control:{action:'plan',work}})).control.work.length,6);
  await planner.merge(conversation.conversationId,work);
@@ -42,12 +42,12 @@ try {
  await planner.fill(conversation.conversationId);assert.equal(delivered.at(-1).coordination.workId,'final');
  await store.setConversationPaused(conversation.conversationId,true);await planner.fill(conversation.conversationId);assert.equal(delivered.length,5);
  const reopened=new LocalStore(dir);await reopened.init();assert.equal((await reopened.getConversation(conversation.conversationId)).workPlan.find(w=>w.id==='a').status,'done');await reopened.close();
- const conflict=await store.createConversation({name:'写入冲突',memberIds:[leader.userId,fast.userId,slow.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const conflict=await store.createConversation({name:'写入冲突',memberIds:[leader.userId,fast.userId,slow.userId],leaderId:leader.userId});
  busy.clear();
  await planner.merge(conflict.conversationId,[item('one',[fast.userId],{outputs:['draft/shared.png']}),item('two',[slow.userId],{outputs:['draft/shared.png']})]);
  const count=delivered.length;await planner.fill(conflict.conversationId);assert.equal(delivered.length-count,1,'only one owner per file at a time');
  for (const [firstReadOnly,secondReadOnly] of [[true,true],[true,false],[false,true]]) {
-  const reports=await store.createConversation({name:'报告写入互斥',memberIds:[leader.userId,fast.userId,slow.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+  const reports=await store.createConversation({name:'报告写入互斥',memberIds:[leader.userId,fast.userId,slow.userId],leaderId:leader.userId});
   busy.clear();
   await planner.merge(reports.conversationId,[item('review1',[fast.userId],{readOnly:firstReadOnly,outputs:['reports/shared.txt']}),item('review2',[slow.userId],{readOnly:secondReadOnly,outputs:['reports/shared.txt']})]);
   const start=delivered.length;await planner.fill(reports.conversationId);
@@ -56,15 +56,15 @@ try {
   await planner.transition(reports.conversationId,first,'result');busy.clear();
   await planner.fill(reports.conversationId);assert.equal(delivered.length-start,1,'report cannot be overwritten while awaiting acceptance');
  }
- const agreed=await store.createConversation({name:'讨论已确认',memberIds:[leader.userId,fast.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const agreed=await store.createConversation({name:'讨论已确认',memberIds:[leader.userId,fast.userId],leaderId:leader.userId});
  await store.updateConversation(agreed.conversationId,{brainstorm:{phase:'ready',revision:6,round:2,probes:0,attempts:0,leaderId:leader.userId,inputSeq:0,participants:[leader.userId,fast.userId],confirmedParticipants:[fast.userId],responses:{}}});
  busy.clear();const before=delivered.length;await planner.merge(agreed.conversationId,[item('agreed',[fast.userId],{preAgreed:true})]);await planner.fill(agreed.conversationId);
  assert.equal(delivered.length,before+1);assert.equal(delivered.at(-1).coordination.phase,'accepted','exactly pre-agreed work skips a redundant proposal turn');
- const merelyPresent=await store.createConversation({name:'只参加过讨论',memberIds:[leader.userId,slow.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const merelyPresent=await store.createConversation({name:'只参加过讨论',memberIds:[leader.userId,slow.userId],leaderId:leader.userId});
  await store.updateConversation(merelyPresent.conversationId,{brainstorm:{phase:'ready',revision:2,round:1,probes:0,attempts:0,leaderId:leader.userId,inputSeq:0,participants:[leader.userId,slow.userId],responses:{}}});busy.clear();
  await planner.merge(merelyPresent.conversationId,[item('not-confirmed',[slow.userId],{preAgreed:true})]);await planner.fill(merelyPresent.conversationId);
  assert.equal(delivered.at(-1).coordination.phase,'proposal','mere brainstorm participation cannot silently authorize a materially different method');
- const redirected=await store.createConversation({name:'纠偏续做',memberIds:[leader.userId,fast.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const redirected=await store.createConversation({name:'纠偏续做',memberIds:[leader.userId,fast.userId],leaderId:leader.userId});
  await store.updateConversation(redirected.conversationId,{brainstorm:{phase:'ready',revision:3,round:2,probes:0,attempts:0,leaderId:leader.userId,inputSeq:0,participants:[leader.userId,fast.userId],confirmedParticipants:[fast.userId],responses:{}}});
  busy.clear();await planner.merge(redirected.conversationId,[item('sample',[fast.userId],{preAgreed:true})]);await planner.fill(redirected.conversationId);
  const old=delivered.at(-1).coordination;let aborted=false;

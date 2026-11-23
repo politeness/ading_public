@@ -1,5 +1,5 @@
 -- Retire foreground timing and the telemetry snapshot columns on devices.
--- mysqldump a backup first — switch all conductor and Ops instances to new versions that don't reference them.
+-- mysqldump a backup first — switch all conductor and Ops instances to new versions that do not reference them.
 -- Production and pre-release share the RDS, so run only after both conductors have stopped the old writes.
 -- device_telemetry and device_telemetry_hour are not dropped: telemetry is now reported while the window is in the foreground, and DAU is computed from them,
 -- see alter-2026-11-10-foreground-telemetry.sql.

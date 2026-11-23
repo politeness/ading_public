@@ -13,7 +13,7 @@
 
   <groupId>com.politeness.ading</groupId>
   <artifactId>conductor</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <name>conductor</name>
   <description>ADing server: accounts, node registration, message routing, offline catch-up</description>
 

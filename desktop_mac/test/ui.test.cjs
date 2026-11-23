@@ -197,7 +197,7 @@ const assert = require('node:assert/strict');
   assert.equal(await opened(), 'test-group', 'can switch back from a multi-member draft to an earlier conversation without sending');
   await click('[data-conversation-id="test-group"] .conversation-list-button'); await wait();
   // A message from days ago showing only the time looks like it was just sent: anything not from today must include the date
-  const stamp = await run(`document.querySelector('#messages .message-time, #messages time, #messages .bubble')?.parentElement?.textContent ?? ''`);
+  const stamp = await run(`document.querySelector('#messages time')?.textContent ?? ''`);
   const shown = await run(`Array.from(document.querySelectorAll('#messages *')).map(n=>n.textContent.trim()).filter(t=>/^\\d{2}:\\d{2}$/.test(t))`);
   assert.deepEqual(shown, [], 'older messages must not show only the time');
   assert.ok(/9月5日|September 5/.test(stamp), `older messages include the date, actual: ${stamp}`);

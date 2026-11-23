@@ -65,9 +65,9 @@ check("Truncated plan is diagnosed, not executed",controlProtocolIssue('{"contro
 const unicodeIdPlan=JSON.stringify({control:{action:"plan",work:[{id:"W1_样张",assignment:"x",candidates:["a"],dependsOn:[],outputs:["x"],acceptance:"x",readOnly:false}]}});
 check("Chinese work id gets an accurate diagnosis",controlProtocolIssue(unicodeIdPlan)==="invalid-plan-id",controlProtocolIssue(unicodeIdPlan));
 
-check("leader can decide collaboration strategy", parse('{"control":{"action":"organize","mode":"discussion"}}').control?.mode === "discussion");
-check("Unknown strategy has no effect", parse('{"control":{"action":"organize","mode":"other"}}').control === undefined);
-check("Batch assignment can carry the execution decision", parse('{"control":{"action":"assign","mode":"execution","to":"阿码"}}').control?.mode === "execution");
+check("organize needs no internal mode", parse('{"control":{"action":"organize"}}').control?.action === "organize");
+check("A legacy mode field is ignored", parse('{"control":{"action":"organize","mode":"discussion"}}').control?.mode === undefined);
+check("assign ignores a legacy mode field", parse('{"control":{"action":"assign","mode":"execution","to":"coder","assignment":"x"}}').control?.action === "assign");
 const interruptDecision={action:"interrupt",workId:"work1",assignmentId:"v1",evidence:"read result mismatch",reason:"discuss new method"};
 check("interrupt requires evidence and direction",parse(JSON.stringify({control:interruptDecision})).control?.action==="interrupt");
 for (const field of ["workId","assignmentId","evidence","reason"]) {

@@ -1,5 +1,5 @@
--- Add model_state to users: the current model reported by the Agent's computer, shown by other computers while it is offline.
--- Nullable column addition only — old conductor versions don't know it and are unaffected. The new conductor writes this column when reporting state, so run this before deploying the new conductor.
+-- Add model_state to users: the current model reported by the computer of the Agent, shown by other computers while it is offline.
+-- Nullable column addition only — old conductor versions do not know it and are unaffected. The new conductor writes this column when reporting state, so run this before deploying the new conductor.
 -- Back up first. Safe to rerun.
 
 SET @has_column = (SELECT COUNT(*) FROM information_schema.COLUMNS

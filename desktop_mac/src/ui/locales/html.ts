@@ -47,6 +47,7 @@ export const htmlMessages = {
   "html.filter.conversationAgents": { zh: "参与 Agent", en: "Participating Agents" },
   "html.filter.conversationAgentList": { zh: "参与 Agent 列表", en: "Participating Agents list" },
   "html.filter.activity": { zh: "信息流", en: "Activity" },
+  "html.chat.latest": { zh: "回到最新", en: "Jump to latest" },
   "html.filter.reportByLeader": { zh: "由 Leader 汇报", en: "Ask the Leader to report" },
   "html.filter.report": { zh: "汇报", en: "Report" },
 

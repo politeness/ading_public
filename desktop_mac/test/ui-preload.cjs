@@ -1,4 +1,6 @@
 const { contextBridge } = require('electron');
+const historyRequests = [];
+let historyFailure = false;
 const me = { userId: 'test-me', displayName: '测试用户', isAgent: false };
 const contacts = [
   { userId: 'test-c', displayName: '小c', isAgent: true, kind: 'codex', enabled: true },
@@ -153,7 +155,18 @@ const bridge = {
   shareAgent:async(agentId,recipientId,shared)=>{sharingCalls.push({agentId,recipientId,shared});const agent=contacts.find(c=>c.userId===agentId);const ids=new Set(agent.sharedWith??[]);if(shared)ids.add(recipientId);else ids.delete(recipientId);agent.sharedWith=[...ids];listeners.onStoreEvent?.({type:"contacts"});}, searchPeople: async () => [], requestFriend: async () => 'OUTGOING', acceptFriend: async () => {}, dismissFriendRequest: async () => {},
   getConversation: async id => conversations.find(t => t.conversationId === id),
   listWorkspaces: async () => workspaces,
-  listMessages: async id => { if(process.argv.includes('--ading-test-math'))return [
+  listMessages: async (id, options = {}) => {
+    if (process.argv.includes('--ading-test-message-history')) {
+      historyRequests.push({id, ...options});
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (historyFailure) { historyFailure = false; throw Error('history offline'); }
+      const rows = Array.from({length:251}, (_, i) => ({messageId:`${id}-page-${i+1}`,conversationId:id,seq:i+1,senderId:'test-c',type:'USER',content:`History ${i+1}\n\nKeep this message in the same position while loading earlier messages.\n\nA page of ten rows must still fill the window.\n\nSo each history row spans several lines.`,createdAt:base.createdAt}));
+      Object.assign(rows[250], {replyTo:`${id}-page-3`, quote:{senderId:'test-c',text:'History 3'}});
+      if (id === 'test-group') rows.forEach((row, index) => { if (index > 0) row.internal = true; });
+      return options.beforeSeq !== undefined ? rows.filter(m => m.seq < options.beforeSeq).slice(-options.limit)
+        : options.afterSeq !== undefined ? rows.filter(m => m.seq > options.afterSeq).slice(0, options.limit) : rows.slice(-options.limit);
+    }
+    if(process.argv.includes('--ading-test-math'))return [
     {messageId:'math-agent',conversationId:id,seq:1,senderId:'test-c',type:'USER',content:'明白，按打叉的题选错题。\n\n问号标在第 14 题：**题目结论成立，但证明中提取公因式那一步有误。**正确写法是：\n\n'+String.raw`\[
 \begin{aligned}
 3^{n+2}-2^{n+2}+3^n-2^n
@@ -236,6 +249,9 @@ const listeners = {};
 for (const name of ['onStoreEvent', 'onAgentProgress', 'onAgentBusy', 'onAgentQueue', 'onAgentLifecycleProgress', 'onSupportUploadResult', 'onAccountChanged', 'onDataSwitching', 'onDataSwitched', 'onUpdateState', 'onComputerPermissionMissing', 'onWindowActive', 'onOpenConversation']) bridge[name] = callback => { listeners[name] = callback; };
 contextBridge.exposeInMainWorld('ading', bridge);
 contextBridge.exposeInMainWorld('adingTest', {
+  emitStore: event => listeners.onStoreEvent?.(event),
+  historyRequests: () => historyRequests,
+  failHistory: () => { historyFailure = true; },
   setAgentFailure: (kind, detail) => { Object.assign(catalog.find(item=>item.kind===kind),{readiness:detail?'error':'ready',detail,recovery:undefined});listeners.onStoreEvent?.({type:'agents'}); },
   setModelCatalog: (catalog) => { testModelCatalog = catalog; },
   modelCalls: () => testModelCalls.splice(0),

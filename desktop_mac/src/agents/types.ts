@@ -22,6 +22,8 @@ export interface ToolPermissionRequest {
  * reading local files and using local macOS permissions, which can't and shouldn't cross the network.
  */
 export interface TurnInput {
+  /** Direct chats retain all user-visible reply text, including answers emitted before tools. */
+  preserveReplyText?: boolean;
   /** Keep the provider input channel open so human messages can steer this same top-level turn. */
   steerable?: boolean;
   /** Permission policy snapshot for this turn. Unattended execution can use the provider's native fast path. */

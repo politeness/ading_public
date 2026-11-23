@@ -10,7 +10,9 @@ final class AppModel {
     var friends: [RemoteUser] = []
     var agentShares: [String: [String]] = [:]
     var conversations: [RemoteConversation] = []
-    var loadError: String?
+    private var refreshState = RefreshState()
+    private let conversationsRefresh = CoalescedRefresh()
+    var loadError: String? { refreshState.error }
     /// Agents currently working (which agent in which task); polled while the chat page is open
     var activity: Set<AgentActivity> = []
 
@@ -67,28 +69,34 @@ final class AppModel {
         agentShares = [:]
         conversations = []
         activity = []
+        conversationsRefresh.cancel()
+        refreshState.reset()
     }
 
     func refresh() async {
         guard isSignedIn else { return }
-        do {
-            async let friendList = APIClient.shared.friends()
-            async let conversationList = APIClient.shared.conversations()
-            async let shares = APIClient.shared.agentShares()
-            friends = try await friendList
-            agentShares = (try? await shares) ?? [:]
-            conversations = try await conversationList.sorted { ($0.lastActivity ?? .distantPast) > ($1.lastActivity ?? .distantPast) }
-            updateBadge()
-            loadError = nil
-        } catch {
-            loadError = error.localizedDescription
-        }
+        async let agents: Void = refreshAgents()
+        async let tasks: Void = refreshConversations()
+        _ = await (agents, tasks)
     }
 
     func refreshConversations() async {
-        guard isSignedIn, let list = try? await APIClient.shared.conversations() else { return }
-        conversations = list.sorted { ($0.lastActivity ?? .distantPast) > ($1.lastActivity ?? .distantPast) }
-        updateBadge()
+        guard isSignedIn else { return }
+        await conversationsRefresh.run { [weak self] in await self?.loadConversations() }
+    }
+
+    private func loadConversations() async {
+        guard isSignedIn else { return }
+        let request = refreshState.begin(.conversations)
+        do {
+            let list = try await APIClient.shared.conversations()
+            try Task.checkCancellation()
+            guard refreshState.finish(.conversations, request: request) else { return }
+            conversations = list.sorted { ($0.lastActivity ?? .distantPast) > ($1.lastActivity ?? .distantPast) }
+            updateBadge()
+        } catch {
+            _ = refreshState.finish(.conversations, request: request, error: error)
+        }
     }
 
     private func updateBadge() {
@@ -188,9 +196,41 @@ final class AppModel {
     }
 
     func refreshAgents() async {
-        guard isSignedIn, let list = try? await APIClient.shared.friends() else { return }
-        friends = list
-        agentShares = (try? await APIClient.shared.agentShares()) ?? [:]
+        guard isSignedIn else { return }
+        async let contacts: Void = refreshFriends()
+        async let shares: Void = refreshAgentShares()
+        _ = await (contacts, shares)
+    }
+
+    private func refreshFriends() async {
+        guard isSignedIn else { return }
+        let request = refreshState.begin(.friends)
+        do {
+            let list = try await APIClient.shared.friends()
+            try Task.checkCancellation()
+            guard refreshState.finish(.friends, request: request) else { return }
+            friends = list
+        } catch {
+            _ = refreshState.finish(.friends, request: request, error: error)
+        }
+    }
+
+    private func refreshAgentShares() async {
+        guard isSignedIn else { return }
+        let request = refreshState.begin(.shares)
+        do {
+            let shares = try await APIClient.shared.agentShares()
+            try Task.checkCancellation()
+            guard refreshState.finish(.shares, request: request) else { return }
+            agentShares = shares
+        } catch {
+            // This optional lookup was already silent; cancellation must not erase cached shares.
+            if RequestCancellation.isCancellation(error) {
+                _ = refreshState.finish(.shares, request: request, error: error)
+            } else if refreshState.finish(.shares, request: request) {
+                agentShares = [:]
+            }
+        }
     }
 
     /// An agent in the task is working

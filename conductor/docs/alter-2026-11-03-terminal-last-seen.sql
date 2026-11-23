@@ -1,6 +1,6 @@
 -- Add last_seen_at to terminals: the last time this account registered (login, launch) on this device or was observed connected to MQTT — for ops statistics only.
 -- Null if there is no record since rollout — no estimated backfill.
--- Nullable column addition only — old conductor versions don't know it and are unaffected. The new conductor and new ops console both depend on it, so run this before both.
+-- Nullable column addition only — old conductor versions do not know it and are unaffected. The new conductor and new ops console both depend on it, so run this before both.
 -- Back up first. Safe to rerun.
 
 SET @has_column = (SELECT COUNT(*) FROM information_schema.COLUMNS

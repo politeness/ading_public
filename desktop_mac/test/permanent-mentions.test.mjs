@@ -19,9 +19,11 @@ try {
  const target=agents.find(a=>a.kind==='claude-code');
  const conversation=await scheduler.createConversation({name:'Directed',memberIds:agents.map(a=>a.userId),permanent:true,
   initialMessage:'Please answer',initialMentions:[target.userId]});
- for(let i=0;i<100 && !(await store.listMessages(conversation.conversationId)).some(m=>m.content==='Directed answer');i++)await new Promise(r=>setTimeout(r,10));
+ for(let i=0;i<100 && (await store.listMessages(conversation.conversationId)).filter(m=>m.content==='Directed answer').length<2;i++)await new Promise(r=>setTimeout(r,10));
  await new Promise(r=>setTimeout(r,80));
- assert.deepEqual(calls,['claude-code'],'only the mentioned agent answers, including no leader cascade');
+ // A person's @-message reaches every Agent like a real group: the mentioned one answers, the others get one turn
+ // (prompted to SKIP unless they have something key). Each runs exactly once: the replies start no cascade.
+ assert.deepEqual([...calls].sort(),['claude-code','codex'],'every agent reads the @-message once, with no reply cascade');
  const messages=await store.listMessages(conversation.conversationId);
  assert.deepEqual(messages[0].mentions,[target.userId],'first-message mentions persist');
  assert.equal((await store.getConversation(conversation.conversationId)).permanent,true);

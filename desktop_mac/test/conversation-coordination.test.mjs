@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -58,12 +59,12 @@ const scheduler = new LocalScheduler({idleRetryLimit:0,
   }}
 });
 try {
-  conversation=await store.createConversation({name:'执行验证',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{goal:'交付',mode:'execution'}});
+  conversation=await readyGroup(store,{name:'执行验证',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{goal:'交付'}});
   assert.equal(conversation.members.find(m=>m.role==='LEADER').userId,leader.userId);
   const incoming=await store.appendMessage({conversationId:conversation.conversationId,clientMessageId:'start',senderId:me.userId,content:'开始'});
-  assert.deepEqual((await scheduler.pickTargets(conversation,incoming)).map(a=>a.userId),[leader.userId]);
-  assert.equal((await scheduler.pickTargets({...conversation,charter:{mode:'discussion'}},incoming)).length,3);
-  await scheduler.dispatch(conversation,incoming);
+  assert.deepEqual(new Set((await scheduler.pickTargets(conversation,incoming)).map(a=>a.userId)),new Set([leader.userId,worker.userId,reviewer.userId]),'human input reaches every available group member');
+  assert.equal((await scheduler.pickTargets(conversation,incoming)).length,3);
+  await scheduler.runAgentTurn(conversation,leader);
   for(let i=0;i<1000;i++){
     if(completed&&scheduler.runtimeSnapshot().agents.length===0)break;
     await new Promise(r=>setTimeout(r,5));
@@ -71,7 +72,7 @@ try {
   assert.ok(completed,'Executes after accepting and returns a result');
   assert.ok(overlap,'leader\'s own work overlaps with worker execution');
   assert.ok(!calls.some(c=>c.id===unavailable.userId),'Unavailable Agent never starts');
-  assert.ok(!calls.some(c=>c.id===reviewer.userId),'Unassigned work is not woken by every message');
+  assert.ok(!calls.some(c=>c.id===reviewer.userId&&c.fullAccess),'Unassigned members can read the conversation but cannot execute work');
   const messages=await store.listMessages(conversation.conversationId,{limit:100});
   assert.deepEqual(messages.filter(m=>m.coordination?.assigneeId===worker.userId).map(m=>m.coordination.phase),['proposal','accepted','result']);
   assert.ok(messages.some(m=>m.content.includes('分工未派发')));
@@ -84,7 +85,7 @@ try {
   await scheduler.updateConversation(conversation.conversationId,{charter:{...conversation.charter,instructions:'优先节约 token'}});
   assert.equal(calls.length,before,'Editing instructions of a paused task must not start work automatically');
   assert.ok((await store.listMessages(conversation.conversationId,{limit:1}))[0].content.includes('优先节约 token'));
-  const negotiationConversation=await store.createConversation({name:'异议与新方案',memberIds:[leader.userId,reviewer.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+  const negotiationConversation=await readyGroup(store,{name:'异议与新方案',memberIds:[leader.userId,reviewer.userId],leaderId:leader.userId});
   const negotiation=new LocalScheduler({idleRetryLimit:0,store,registry:{cancel:()=>true},syncer:{ensureSynced:async()=>[]},resolveWorkspace:async()=>({workspacePath:directory,sharesKnowledge:false}),resolveDiscovered:id=>discovered.find(d=>agents.find(a=>a.localUuid===d.localUuid)?.userId===id),isAgentReady:a=>!offline.has(a.userId),broadcast:()=>{},log:async()=>{}});
   const delivered=[];
   negotiation.dispatch=async(t,m)=>{delivered.push(...(await negotiation.pickTargets(t,m)).map(a=>a.userId));};
@@ -107,20 +108,16 @@ try {
   assert.equal((await negotiation.assignmentFor(negotiationConversation.conversationId,reviewer.userId)).phase,'rejected','Becoming unavailable while awaiting acceptance also revokes the assignment and notifies');
   offline.delete(reviewer.userId);
   await assert.rejects(()=>scheduler.createConversation({name:'错误 leader',memberIds:[leader.userId,unavailable.userId],leaderId:unavailable.userId}),/当前不可用/);
-  const autoConversation=await store.createConversation({name:'讨论产品创意',memberIds:[leader.userId,worker.userId,reviewer.userId],leaderId:leader.userId,charter:{goal:'一起讨论产品创意'}});
+  const autoConversation=await readyGroup(store,{name:'讨论产品创意',memberIds:[leader.userId,worker.userId,reviewer.userId],leaderId:leader.userId,charter:{goal:'一起讨论产品创意'}});
   const autoMessage=await store.appendMessage({conversationId:autoConversation.conversationId,clientMessageId:'automatic-routing',senderId:me.userId,content:'一起想想更好的方案'});
-  assert.deepEqual((await negotiation.pickTargets(autoConversation,autoMessage)).map(a=>a.userId),[leader.userId],'First decision is made by the leader, not broadcast to everyone');
-  const ignored=await negotiation.applyLeaderControl(autoConversation,worker,JSON.stringify({control:{action:'organize',mode:'discussion'}}),null);
-  assert.equal(autoConversation.charter.mode,undefined,'Other members cannot change the scheduling strategy');
-  await negotiation.applyLeaderControl(autoConversation,leader,JSON.stringify({control:{action:'organize',mode:'discussion'}}),null);
-  assert.equal(autoConversation.charter.mode,'discussion');
-  assert.equal((await negotiation.pickTargets(autoConversation,autoMessage)).length,3,'Members join the exchange after the leader decides on discussion');
-  await negotiation.applyLeaderControl(autoConversation,leader,JSON.stringify({control:{action:'organize',mode:'execution'}}),null);
-  assert.equal(autoConversation.charter.mode,'execution');
-  assert.deepEqual((await negotiation.pickTargets(autoConversation,autoMessage)).map(a=>a.userId),[leader.userId],'Switches to targeted assignment after the phase changes to operation');
-  assert.equal(negotiation.pendingTurns.get(leader.userId).get(autoConversation.conversationId).force,true,'Leader\'s work continues automatically after deciding on execution');
-  await negotiation.updateConversation(autoConversation.conversationId,{charter:{...autoConversation.charter,mode:'discussion',instructions:'请继续'}});
-  assert.equal(autoConversation.charter.mode,'execution','User edit API cannot change internal strategy');
+  assert.equal((await negotiation.pickTargets(autoConversation,autoMessage)).length,3,'human input is available to every member');
+  const charterBefore=(await store.getConversation(autoConversation.conversationId)).charter;
+  for(const speaker of [worker,leader])for(const mode of ['discussion','execution']) {
+    await negotiation.applyLeaderControl(autoConversation,speaker,JSON.stringify({control:{action:'organize',mode}}),null);
+    assert.deepEqual((await store.getConversation(autoConversation.conversationId)).charter,charterBefore,'obsolete organize controls cannot change the conversation');
+  }
+  await negotiation.updateConversation(autoConversation.conversationId,{charter:{...charterBefore,instructions:'请继续'}});
+  assert.equal((await store.getConversation(autoConversation.conversationId)).charter.instructions,'请继续','supported user instructions still update');
   await store.setMemberPaused(conversation.conversationId,reviewer.userId,true);
   const beforeShutdown=JSON.stringify(await store.listConversations());
   await scheduler.shutdown();

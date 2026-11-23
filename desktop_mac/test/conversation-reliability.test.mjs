@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import path from 'node:path';import os from 'node:os';
@@ -13,7 +14,7 @@ const outcome=message=>({ok:true,threadId:'session',message,steps:[],metrics:{it
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function settled(scheduler){for(let i=0;i<1000;i++){if(!scheduler.runtimeSnapshot().agents.length){await sleep(10);if(!scheduler.runtimeSnapshot().agents.length)return;}await sleep(5);}throw new Error('Scheduling did not converge');}
 try {
- const conversation=await store.createConversation({name:'真实调度器三人队列',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution'}});
+ const conversation=await readyGroup(store,{name:'真实调度器三人队列',memberIds:agents.map(a=>a.userId),leaderId:leader.userId});
  let calls=0;let planned=false;const executed=new Set();
  const scheduler=new LocalScheduler({idleRetryLimit:0,...base,registry:{cancel:()=>true,runTurn:async(d,input)=>{
   assert.ok(++calls<40,'No idle polling loop');const user=agents.find(a=>a.kind===d.kind);const t=await store.getConversation(conversation.conversationId);
@@ -27,23 +28,24 @@ try {
  await scheduler.runAgentTurn(conversation,leader);await settled(scheduler);
  assert.equal(executed.size,3,'All three members, including the Leader and Qoder CN, truly went through acceptance and execution');
  assert.ok((await store.getConversation(conversation.conversationId)).workPlan.every(w=>w.status==='done'),'All dependency states closed out through actual scheduler review');
- const staleConversation=await store.createConversation({name:'迟到结果不得发布旧结论',memberIds:[leader.userId,a.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const staleConversation=await readyGroup(store,{name:'迟到结果不得发布旧结论',memberIds:[leader.userId,a.userId],leaderId:leader.userId});
  let turn=0;const logs=[];
- const stale=new LocalScheduler({idleRetryLimit:0,...base,log:async(e)=>logs.push(e),registry:{cancel:()=>true,runTurn:async()=>{
+ const stale=new LocalScheduler({idleRetryLimit:0,...base,log:async(e)=>logs.push(e),registry:{cancel:()=>true,runTurn:async(d)=>{
+  if(d.kind!==leader.kind)return outcome('SKIP');
   if(++turn===1){await store.appendMessage({conversationId:staleConversation.conversationId,clientMessageId:'new-owner',senderId:me.userId,content:'文件已上传，不用再等待'});return outcome('还在等待文件上传');}
   return outcome('收到文件，按最新要求继续');
  }}});
  await stale.runAgentTurn(staleConversation,leader);await settled(stale);
  assert.equal(turn,2);assert.ok(logs.includes('reply-retained-with-new-context'));
  assert.ok((await store.listMessages(staleConversation.conversationId)).some(m=>m.content==='还在等待文件上传' && m.agentReply?.newerInput));
- const failConversation=await store.createConversation({name:'同步失败不影响执行',memberIds:[leader.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const failConversation=await readyGroup(store,{name:'同步失败不影响执行',memberIds:[leader.userId],leaderId:leader.userId});
  let called=false;const fail=new LocalScheduler({idleRetryLimit:0,...base,syncer:{ensureSynced:async()=>{throw Error('mock write failed');}},registry:{runTurn:async()=>{called=true;return outcome('同步失败仍正常回复');}}});
  await fail.runAgentTurn(failConversation,leader);assert.equal(called,true);const afterFailure=await store.listMessages(failConversation.conversationId);assert.ok(!afterFailure.some(m=>m.failed));assert.ok(afterFailure.some(m=>m.content==='同步失败仍正常回复'));
  const memory=await store.appendMemory({scope:'conversation',ownerId:conversation.conversationId,content:'旧值',authorKind:'agent'});
  await sleep(3);const since=new Date().toISOString();await sleep(3);
  await Promise.all([store.updateMemory(memory.memoryId,{content:'新值'}),...Array.from({length:20},(_,i)=>store.appendMemory({scope:'conversation',ownerId:conversation.conversationId,content:`追加${i}`,authorKind:'agent'}))]);
  const memories=await store.listMemories('conversation',conversation.conversationId,{since});assert.equal(memories.length,21);assert.ok(memories.some(m=>m.content==='新值'));
- const memConversation=await store.createConversation({name:'轮中记忆同步水位',memberIds:[leader.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const memConversation=await readyGroup(store,{name:'轮中记忆同步水位',memberIds:[leader.userId],leaderId:leader.userId});
  const memScheduler=new LocalScheduler({idleRetryLimit:0,...base,registry:{runTurn:async()=>{await sleep(3);await store.appendMemory({scope:'conversation',ownerId:memConversation.conversationId,content:'执行期间新增',authorKind:'agent'});return outcome('完成');}}});
  await memScheduler.runAgentTurn(memConversation,leader);
  const session=await store.getAgentSession(memConversation.conversationId,leader.userId);

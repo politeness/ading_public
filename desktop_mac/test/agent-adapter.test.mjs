@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import { mkdtemp } from "./tmp.mjs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,7 @@ const check = (name, cond, got) => {
 };
 
 const dir = await mkdtemp(path.join(os.tmpdir(), "ading-agent-contract-"));
+configureCodexSessionRoot(path.join(dir,'codex-sessions'));
 
 {
   const source = {
@@ -80,6 +82,12 @@ if (prompt.includes("wait")) setTimeout(() => {}, 10000);
 else if (prompt.includes("communication-hang")) {
   console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"已给出具体讨论意见"}]},session_id:id}));
   setTimeout(() => {}, 10000);
+}
+else if (prompt.includes("multi-answer")) {
+  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"译文已完成"},{type:"thinking",thinking:"private"}]},session_id:id}));
+  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"tool_use",name:"Read",input:{file_path:"example.txt"}}]}}));
+  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"附件已准备"}]},session_id:id}));
+  console.log(JSON.stringify({type:"result",subtype:"success",result:"附件已准备",session_id:id}));
 }
 else if (prompt.includes("fail")) console.log(JSON.stringify({type:"result",subtype:"error",is_error:true,result:"fake failure",session_id:id}));
 else {
@@ -149,6 +157,8 @@ for (const [kind, Adapter] of [
   check(`${kind} gets the tool activity stream`, progress.some((text) => text.includes("查看文件")), progress);
   check(`${kind} doesn't mix intermediate analysis into the final reply`, !outcome.message.includes("中间分析"), outcome.message);
 
+  const complete = await adapter.runTurn(makeAgent(kind, streamPath), input("multi-answer", [], {preserveReplyText:true}));
+  check(`${kind} keeps the translation and the following attachment text once in a direct chat`,complete.ok && complete.message === "译文已完成\n\n附件已准备",complete);
   const resumed = await adapter.runTurn(
     makeAgent(kind, streamPath),
     input("continue", [], { threadId: "stream-session-1" })

@@ -35,7 +35,7 @@ const conversation = {
     role: user.userId === me.userId ? "LEADER" : "ENGINEER",
     lastReadSeq: 0
   })),
-  charter: { mode: "discussion", goal: "确认消息经过调度器到达 Agent" },
+  charter: { goal: "确认消息经过调度器到达 Agent" },
   status: "ACTIVE",
   paused: false,
   createdAt: "2026-09-04T00:00:00.000Z",
@@ -541,7 +541,7 @@ const createdConversation = {
     { userId: me.userId, role: "LEADER", lastReadSeq: 0 },
     { userId: ready.userId, role: "ENGINEER", lastReadSeq: 0 }
   ],
-  charter: { mode: "discussion", goal: "不要等待第一条消息" },
+  charter: { goal: "不要等待第一条消息" },
   paused: false
 };
 const createdMessages = [];

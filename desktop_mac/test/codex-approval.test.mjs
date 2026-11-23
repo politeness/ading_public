@@ -1,9 +1,11 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import assert from 'node:assert/strict';import {mkdtemp,writeFile,chmod,rm} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';
 import {CodexAdapter} from '../dist/agents/codex.js';
 import {LocalStore} from '../dist/store/local.js';
 import {LocalScheduler} from '../dist/orchestration/local-scheduler.js';
 const screenshotReply='**不会自动同步。**我检查了，这次只有 Codex 的 `~/.codex/skills/ading-comic-promotion` 已安装，Claude 和 Qoder 的 skills 目录里都还没有。阿钉目前只同步公共技能库里登记的文字规则，不会扫描 Codex 目录并传播；也不会复制包内的图片等资源。见[同步实现](/fixture/ading/desktop_mac/src/skills/sync.ts:50)。这个 skill 带有 5 张参考漫画，其他 Agent 需要另外安装完整技能包。';
 const dir=await mkdtemp(path.join(os.tmpdir(),'ading-codex-approval-'));
+configureCodexSessionRoot(path.join(dir,'codex-sessions'));
 const bin=path.join(dir,'codex');
 await writeFile(bin,`#!/usr/bin/env node
 const readline=require('node:readline');

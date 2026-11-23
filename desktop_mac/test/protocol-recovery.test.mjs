@@ -14,7 +14,7 @@ async function settle(s){for(let i=0;i<300;i++){if(!s.runtimeSnapshot().agents.l
 const work={id:'inspect',assignment:'检查输入',candidates:[q.userId],dependsOn:[],outputs:[],acceptance:'提供核对证据',readOnly:true};
 try {
  for(const recover of [false,true]) {
-  const conversation=await store.createConversation({name:'接单恢复',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution'}});
+  const conversation=await store.createConversation({name:'接单恢复',memberIds:agents.map(a=>a.userId),leaderId:leader.userId});
   let qTurns=0,executions=0,reassigned=false,leaderSawBlocked=false;
   const s=new LocalScheduler({idleRetryLimit:0,...base,registry:{cancel:()=>true,runTurn:async(d,input)=>{
    const t=await store.getConversation(conversation.conversationId);const user=agents.find(a=>a.kind===d.kind);
@@ -39,7 +39,7 @@ try {
   assert.equal(leaderSawBlocked,!recover);assert.equal((await store.getConversation(conversation.conversationId)).workPlan[0].status,'done');
   const messages=await store.listMessages(conversation.conversationId,{limit:1000});assert.ok(messages.some(m=>m.content.includes('<image>')),'keeps the raw reply for clarification but must not treat it as a tool call');
  }
- const conversation=await store.createConversation({name:'业务受阻不验收',memberIds:[leader.userId,cc.userId],leaderId:leader.userId,charter:{mode:'execution'}});
+ const conversation=await store.createConversation({name:'业务受阻不验收',memberIds:[leader.userId,cc.userId],leaderId:leader.userId});
  const s=new LocalScheduler({idleRetryLimit:0,...base,registry:{runTurn:async(d)=>{
   const t=await store.getConversation(conversation.conversationId);if(d.kind==='codex')return !t.workPlan?.length?control({action:'plan',work:[{...work,candidates:[cc.userId]}]}):ok('SKIP');
   const c=(await store.listMessages(conversation.conversationId,{limit:1000})).filter(m=>m.coordination?.assigneeId===cc.userId).at(-1).coordination;
@@ -53,7 +53,7 @@ try {
  assert.equal((await store.getConversation(t.conversationId)).workPlan[0].status,'blocked');
  // Natural assent executes once; a real question reaches the leader immediately, who revises and asks again.
  for (const question of [false,true]) {
-  const conversation=await store.createConversation({name:'自然语言协商',memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution'}});
+  const conversation=await store.createConversation({name:'自然语言协商',memberIds:agents.map(a=>a.userId),leaderId:leader.userId});
   let workerTurns=0,executions=0,discussed=false;
   const raw='我需要先确认一个关键能力问题再决定。\n<tool-_calls><tool><tool_name>file</tool_name></tool></tool-_calls>';
   const s=new LocalScheduler({idleRetryLimit:0,...base,registry:{runTurn:async(d,input)=>{

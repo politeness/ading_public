@@ -1,3 +1,4 @@
+import { codexSessionConfigArgs } from "./codex-session-home";
 import {computerDynamicTools,computerToolsEnabled,isComputerTool,runComputerTool,toCodexContent} from "./computer-tools";
 import {clientInfo} from "./client-info";
 import {ProcessRunner,type ProcessChannel} from "./process-runner";
@@ -87,7 +88,7 @@ export async function runCodexWithApprovals(runner:ProcessRunner,agent:Discovere
   const describeModel=(snapshot:AgentRuntimeConfig)=>[snapshot.model,snapshot.reasoningEffort ? p(`推理 ${snapshot.reasoningEffort}`, `reasoning ${snapshot.reasoningEffort}`) : "",snapshot.serviceTier ? p(`服务 ${snapshot.serviceTier}`, `service ${snapshot.serviceTier}`) : ""].filter(Boolean).join(" · ");
   const baseConfig=input.isolateMemory ? {"features.memories":false,"memories.generate_memories":false,"memories.use_memories":false} : {};
   // The part ADing generates goes into developerInstructions, and this turn's input keeps only the conversation —
-  // so in Codex's own UI the user sees what they said, not scaffolding assembled by ADing.
+  // keeping native user-message items separate from the instructions assembled by ADing.
   // Both thread/start and thread/resume accept this parameter, so it can be refreshed every turn and can hold changing state.
   const threadConfig=()=>({
     ...(input.split ? {developerInstructions:input.split.app} : {}),
@@ -101,8 +102,8 @@ export async function runCodexWithApprovals(runner:ProcessRunner,agent:Discovere
       : {})
   });
   const beginThread=()=>send(3,input.threadId ? "thread/resume" : "thread/start",{...threadConfig(),...(input.threadId ? {threadId:input.threadId,excludeTurns:true} : {})});
-  // Codex puts a write lock on each session. ADing's sessions appear in the ChatGPT / Codex desktop app lists, and once opened there the app holds the lock,
-  // so resuming only gets "already has an active writer". In that case fork a copy (keeping history and dynamic tools) and continue,
+  // Codex puts a write lock on each session. If another process holds the same private session,
+  // resume reports "already has an active writer". Fork a copy (keeping history and dynamic tools) and continue,
   // saving the new session ID with this turn's result and resuming that one from then on.
   let forkedFrom:string|undefined;
   const forkLockedThread=(e:any)=>{
@@ -192,7 +193,7 @@ export async function runCodexWithApprovals(runner:ProcessRunner,agent:Discovere
   };
   record(p("正在连接 Codex 审批通道", "Connecting to the Codex approval channel"));
   const run=await runner.run(agent.localUuid,{
-    executablePath:agent.executablePath,args:["app-server","--stdio"],cwd:input.workspacePath,env,label:"Codex",signal:input.signal,timeoutMs:input.timeoutMs,hasPendingWork:input.hasPendingWork,
+    executablePath:agent.executablePath,args:["app-server","--stdio",...codexSessionConfigArgs(env)],cwd:input.workspacePath,env,label:"Codex",signal:input.signal,timeoutMs:input.timeoutMs,hasPendingWork:input.hasPendingWork,
     // Protocol events are consumed in place; never retain reasoning, images or tool output.
     retainLine:()=>undefined,
     onStart:c=>{channel=c;send(1,"initialize",{clientInfo:clientInfo(),capabilities:{experimentalApi:true}});},

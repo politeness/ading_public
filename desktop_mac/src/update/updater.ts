@@ -4,7 +4,7 @@ import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { removeTree } from "../platform/remove-tree";
 import { compareVersions, isValidVersion } from "./version";
-import { tm } from "../i18n";
+import { cloudErrorText, tm } from "../i18n";
 import { describeError } from "../orchestration/diagnostics";
 
 /**
@@ -314,7 +314,8 @@ export async function postAnonymous(
     const payload = await response.json().catch(() => undefined) as
       { code?: unknown; message?: unknown; data?: unknown } | undefined;
     if (payload?.code === "OK") return { ok: true, data: payload.data };
-    const message = typeof payload?.message === "string" ? payload.message : `HTTP ${response.status}`;
+    // The server message is English only; show the UI-language text for known codes
+    const message = cloudErrorText(payload?.code) ?? (typeof payload?.message === "string" ? payload.message : `HTTP ${response.status}`);
     return { ok: false, message };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error), detail: describeError(error) };

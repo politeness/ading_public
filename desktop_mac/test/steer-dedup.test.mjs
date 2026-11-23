@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp, rm, mkdir} from 'node:fs/promises';
 import os from 'node:os';
@@ -92,8 +93,7 @@ try {
  }
  {
    // Group: the Leader and a member are both steered; each settles on its own confirmation.
-   const group=await store.createConversation({name:'GROUP',memberIds:[agent.userId,worker.userId],leaderId:agent.userId});
-   await store.updateConversation(group.conversationId,{charter:{mode:'discussion'}});
+   const group=await readyGroup(store,{name:'GROUP',memberIds:[agent.userId,worker.userId],leaderId:agent.userId});
    await scheduler.sendUserMessage({conversationId:group.conversationId,clientMessageId:'g0',content:'GROUP_START'});
    await until(()=>!!turnFor('leader')&&!!turnFor('worker'));
    const before=calls.length;

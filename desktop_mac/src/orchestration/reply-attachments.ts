@@ -2,12 +2,16 @@ import os from "node:os";
 import path from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { MAX_ATTACHMENTS, mimeFromName } from "../store/attachments";
+import { MAX_ATTACHMENTS } from "../store/attachments";
 import { p } from "../prompt-language";
 
-/** `image` marks embeds and image links: their delivery failures are reported.
- * Other links may be plain citations, so only workspace files become attachments. */
-interface FileReference { start: number; end: number; label: string; file: string; image: boolean }
+interface FileReference { start: number; end: number; label: string; file: string }
+
+// A local Markdown link is usually a citation. Require delivery intent in a
+// plain link's label; image embeds explicitly request inline delivery already.
+function isDeliveryLabel(label: string): boolean {
+  return /^(?:下载|附件(?:[：:\s]|$)|download\b|attachments?(?:[：:\s]|$))/i.test(label.trim());
+}
 
 /** Only explicit delivery links are attachments. Bare paths, code examples and
  * files merely inspected by a provider tool are not permission to publish files. */
@@ -59,19 +63,20 @@ export function localReplyAttachments(content: string): FileReference[] {
       destination = destination.slice(1, end);
     } else destination = destination.replace(/\s+["'][^"']*["']$/, "");
     destination = destination.replace(/\\([\\()[\]<> ])/g, "$1");
+    // Links to a section or source line remain citations, including file: URLs.
+    if (destination.includes("#")) continue;
     let file: string;
     if (/^file:/i.test(destination)) {
       try { file = fileURLToPath(destination); } catch { continue; }
     } else {
       if (/^[a-z][a-z\d+.-]*:/i.test(destination) || destination.startsWith("//") || destination.startsWith("#")) continue;
-      // A fragment addresses a place inside the file (`notes.md#L3`), not part of its name.
-      const local = destination.replace(/#.*$/s, "");
-      try { file = decodeURIComponent(local); } catch { file = local; }
+      try { file = decodeURIComponent(destination); } catch { file = destination; }
     }
     // Source citations address a line, not a deliverable file.
     if (!file || /[\u0000-\u001f]/.test(file) || /:\d+(?::\d+)?$/.test(file)) continue;
-    const image = content[start] === "!" || mimeFromName(file).startsWith("image/");
-    references.push({ start, end: at + 1, label: match[1].replace(/\\(.)/g, "$1"), file, image });
+    const label = match[1].replace(/\\(.)/g, "$1");
+    if (content[start] !== "!" && !isDeliveryLabel(label)) continue;
+    references.push({ start, end: at + 1, label, file });
   }
   return references;
 }
@@ -111,11 +116,8 @@ export async function prepareReplyAttachments(input: {
       replacements.push({ ...ref, text: ref.label || attachment.name });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code || (error instanceof Error ? error.message : "");
-      // A non-image link to a file outside the workspace, a missing path or a
-      // directory is a citation, not a delivery: keep it exactly as written.
-      if (!ref.image && ["ATTACHMENT_OUTSIDE_WORKSPACE", "ENOENT", "ENOTDIR", "ATTACHMENT_NOT_FILE"].includes(code)) continue;
       // A failed delivery must not remain a clickable machine-local URL on
-      // another client. Keep its caption and the explicit failure notice.
+      // another client. Report genuine failures instead of silently losing files.
       replacements.push({ ...ref, text: ref.label || path.basename(file) });
       const reason = code === "ATTACHMENT_TOO_MANY"
         ? p(`每条消息最多 ${MAX_ATTACHMENTS} 个附件`, `at most ${MAX_ATTACHMENTS} attachments per message`)

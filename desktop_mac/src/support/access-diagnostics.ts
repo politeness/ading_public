@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { nativeCodexHome } from "../agents/codex-session-home";
 
 /**
  * On-the-spot record when a vendor CLI is denied (EPERM / EACCES) reading/writing its own config directory.
@@ -33,7 +34,7 @@ function configDirectory(kind: AgentKind, home: string): string {
     case "copilot": return process.env.COPILOT_HOME || path.join(home, ".copilot");
     case "antigravity": return path.join(home, ".gemini", "antigravity-cli");
     case "qwen-code": return process.env.QWEN_HOME || path.join(home, ".qwen");
-    case "codex": return process.env.CODEX_HOME || path.join(home, ".codex");
+    case "codex": return nativeCodexHome(home);
     default: return path.join(home, ".claude");
   }
 }

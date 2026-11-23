@@ -15,9 +15,16 @@ final class ChatModel {
     }
     var sending = false
     var error: String?
+    private(set) var hasOlder = false
+    private(set) var loadingOlder = false
+    private(set) var initialLoaded = false
 
     private var polling: Task<Void, Never>?
     private var lastRead = 0
+    private var oldestSeq: Int?
+    private var loadingLatest = false
+    private var pulling = false
+    private var generation = 0
 
     init(conversationId: String?) {
         self.conversationId = conversationId
@@ -50,28 +57,64 @@ final class ChatModel {
     func stop() {
         polling?.cancel()
         polling = nil
+        generation += 1
+        loadingLatest = false
+        loadingOlder = false
+        pulling = false
     }
 
     private func loadLatest() async {
-        guard let conversationId else { return }
+        guard let conversationId, !loadingLatest else { return }
+        if initialLoaded { await pull(); return }
+        let request = generation
+        loadingLatest = true
+        defer { if generation == request { loadingLatest = false } }
         do {
-            messages = try await APIClient.shared.latestMessages(in: conversationId)
+            let page = try await APIClient.shared.latestMessages(in: conversationId)
+            guard generation == request, !Task.isCancelled else { return }
+            merge(page)
+            oldestSeq = page.first?.seq
+            hasOlder = page.count == 100 && (oldestSeq ?? 0) > 1
+            initialLoaded = true
             error = nil
             await markRead()
         } catch {
-            self.error = error.localizedDescription
+            if generation == request, !Task.isCancelled { self.error = error.localizedDescription }
+        }
+    }
+
+    func loadOlder() async {
+        guard let conversationId, initialLoaded, hasOlder, !loadingOlder, let oldestSeq else { return }
+        let request = generation
+        loadingOlder = true
+        defer { if generation == request { loadingOlder = false } }
+        do {
+            let page = try await APIClient.shared.messages(in: conversationId, beforeSeq: oldestSeq)
+            guard generation == request, !Task.isCancelled else { return }
+            let older = page.filter { $0.seq < oldestSeq }
+            merge(older)
+            self.oldestSeq = older.first?.seq ?? oldestSeq
+            hasOlder = older.count == 100 && (self.oldestSeq ?? 0) > 1
+            error = nil
+        } catch {
+            if generation == request, !Task.isCancelled { self.error = error.localizedDescription }
         }
     }
 
     func pull() async {
-        guard let conversationId else { return }
+        guard let conversationId, !pulling else { return }
+        if !initialLoaded { await loadLatest(); return }
+        let request = generation
+        pulling = true
+        defer { if generation == request { pulling = false } }
         do {
             let newer = try await APIClient.shared.messages(in: conversationId, afterSeq: lastSeq)
+            guard generation == request, !Task.isCancelled else { return }
             merge(newer)
             error = nil
             await markRead()
         } catch {
-            self.error = error.localizedDescription
+            if generation == request, !Task.isCancelled { self.error = error.localizedDescription }
         }
     }
 

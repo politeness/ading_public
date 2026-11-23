@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 // Background sync turns leave no session records: each vendor runs real argument generation and process invocation with a fake CLI, with HOME pointing at a temp directory.
 import assert from 'node:assert/strict';
 import {lstat,mkdir,readFile,realpath,rm,symlink,writeFile} from 'node:fs/promises';
@@ -6,6 +7,7 @@ import path from 'node:path';
 import {mkdtemp} from './tmp.mjs';
 
 const root=await mkdtemp(path.join(os.tmpdir(),'ading-no-persist-'));
+configureCodexSessionRoot(path.join(root,'codex-sessions'));
 const realHome=os.homedir(),home=path.join(root,'home'),workspace=path.join(root,'work');
 const savedEnv=Object.fromEntries(['HOME','COPILOT_HOME','QWEN_HOME'].map(key=>[key,process.env[key]]));
 process.env.HOME=home;delete process.env.COPILOT_HOME;process.env.QWEN_HOME=path.join(home,'.qwen');

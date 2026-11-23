@@ -31,6 +31,10 @@
 			isa = PBXBuildFile;
 			fileRef = 81C4C200E9421099C7103980;
 		};
+		1FB189EE4AAB1A22B230066A = {
+			isa = PBXBuildFile;
+			fileRef = 08C62FFC1A9813F7EAFE803B;
+		};
 		1FE6D33053AAD09617D8FB55 = {
 			isa = PBXBuildFile;
 			fileRef = 58451DF475E5D77943E78ED4;
@@ -71,6 +75,10 @@
 		40F0530F1F25E5C13430706B = {
 			isa = PBXBuildFile;
 			fileRef = F0C5617269A146E0F0635DCB;
+		};
+		439E3060F6B5EE70E2ECF2AD = {
+			isa = PBXBuildFile;
+			fileRef = D92A9A364DCC53F6577F7F41;
 		};
 		43FBE9D1074093C374EEE165 = {
 			isa = PBXBuildFile;
@@ -132,6 +140,10 @@
 			isa = PBXBuildFile;
 			fileRef = D9F5CA8159593776F86379CE;
 		};
+		8D8EBA74546810D9BCCE8139 = {
+			isa = PBXBuildFile;
+			fileRef = C3F1785C6432007A3D9DB190;
+		};
 		8E2F09144C1B5124CA59054E = {
 			isa = PBXBuildFile;
 			fileRef = 605DA18EF48F082267D4706D;
@@ -143,6 +155,10 @@
 		91A702207B8D98B5D8201CB1 = {
 			isa = PBXBuildFile;
 			fileRef = 57B0860C2C289A49E2D87FEF;
+		};
+		94D46D71D500459A9D2A88F1 = {
+			isa = PBXBuildFile;
+			fileRef = D92A9A364DCC53F6577F7F41;
 		};
 		956AE7E2BF356248F01F6BA8 = {
 			isa = PBXBuildFile;
@@ -292,6 +308,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = ConversationsView.swift;
+			sourceTree = "<group>";
+		};
+		08C62FFC1A9813F7EAFE803B = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = HTMLAttachmentPreview.swift;
 			sourceTree = "<group>";
 		};
 		204DABCAA18817FE5FDD693C = {
@@ -532,10 +554,22 @@
 			path = Components.swift;
 			sourceTree = "<group>";
 		};
+		C3F1785C6432007A3D9DB190 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = RefreshState.swift;
+			sourceTree = "<group>";
+		};
 		CC1646D50B150DEDA5853F97 = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = AttachmentViews.swift;
+			sourceTree = "<group>";
+		};
+		D92A9A364DCC53F6577F7F41 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = RequestCancellation.swift;
 			sourceTree = "<group>";
 		};
 		D9F5CA8159593776F86379CE = {
@@ -682,6 +716,7 @@
 				8EA65EAF4A9667B32EDCFA75,
 				DD1FB8146E841E63697B8345,
 				EE0C9AEC7CA3C3D87C0882B0,
+				D92A9A364DCC53F6577F7F41,
 				FDDB180A81431C7F9522519A,
 				05EE7BDA981365F9908D3E82,
 			);
@@ -710,6 +745,7 @@
 				BBBD5A65FE5DF184F963823C,
 				6A51D84D78C331F692971A33,
 				07E4307836C06CE7C23FFD66,
+				08C62FFC1A9813F7EAFE803B,
 				828EE97099660BF0F4742071,
 				B68E2368244FE446B4F3FE7B,
 				B85BF2B6E3375E1602F4EAE7,
@@ -739,6 +775,7 @@
 				2BFFF50AAB7866E47CA434B2,
 				681C58D65371B6B858913E4B,
 				7F0E57DAF2D274C92666B940,
+				C3F1785C6432007A3D9DB190,
 				9D4CCE38C724C80F10A8D333,
 			);
 			sourceTree = "<group>";
@@ -899,6 +936,7 @@
 				E7915FC06E71DF5B8921971E,
 				F5BCA7E72C5BE257467E956D,
 				ACCA8D03873AFF0855E1B84A,
+				8D8EBA74546810D9BCCE8139,
 				396A00FDC647BC13DBE39F02,
 				1FE6D33053AAD09617D8FB55,
 				CB330E418D0CFDC74653769F,
@@ -906,6 +944,7 @@
 				DB979ECDFB964A9EB86A478F,
 				5429939D42B001CDF724702B,
 				3298ABFA9BD73E22D59092C4,
+				439E3060F6B5EE70E2ECF2AD,
 				DD96C09889D81B896E04023C,
 				2B390D565620A424C973B147,
 				AA65A779C5ACE346CD26B04C,
@@ -914,6 +953,7 @@
 				6D444067671B3D6C61AE761B,
 				EFC63979B1EC6689FCD42F71,
 				C357BC61BB7FFCBADBA22B63,
+				1FB189EE4AAB1A22B230066A,
 				7D5E63A9E83C25EE59C8BEE3,
 				486A3BED5CAF3AFBBA198E30,
 				956AE7E2BF356248F01F6BA8,
@@ -943,6 +983,7 @@
 				75D2ACA329928256E9BE86A0,
 				7F890625A5F79BA7507B2373,
 				B04A2872BFAADE5527945300,
+				94D46D71D500459A9D2A88F1,
 				7FCAA60D316C3F5E0030983D,
 				F586E4CBE35B93CF80E06AA6,
 			);
@@ -993,7 +1034,7 @@
 				INFOPLIST_FILE = ADingShare/Info.plist;
 				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading.share;
 				PRODUCT_NAME = ADingShare;
 				SKIP_INSTALL = YES;
@@ -1017,7 +1058,7 @@
 				INFOPLIST_FILE = ADingShare/Info.plist;
 				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading.share;
 				PRODUCT_NAME = ADingShare;
 				SKIP_INSTALL = YES;
@@ -1040,7 +1081,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ADing/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading;
 				PRODUCT_NAME = ADing;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1106,7 +1147,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ADing/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading;
 				PRODUCT_NAME = ADing;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1131,7 +1172,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ADing/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading;
 				PRODUCT_NAME = ADing;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1174,7 +1215,7 @@
 				INFOPLIST_FILE = ADingShare/Info.plist;
 				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				MARKETING_VERSION = 0.11.3;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.politeness.ading.share;
 				PRODUCT_NAME = ADingShare;
 				SKIP_INSTALL = YES;

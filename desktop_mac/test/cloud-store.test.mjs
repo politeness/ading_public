@@ -198,6 +198,17 @@ async function open(cloud, root = rootFor(), retryMs = 60_000) {
     await store.refreshAgents();
     assert.deepEqual((await store.getUser('u_new')).remote.model,{selected:'b',nativeModel:'Model A'});
     assert.equal('model' in (await store.getUser('u_old')).remote,false);
+    const events=[];
+    const unsubscribe=store.subscribe(event=>events.push(event.type));
+    try {
+      for(const readiness of ['exhausted','unauthorized','ready']) {
+        events.length=0;
+        cloud.state.agents.get('u_new').readiness=readiness;
+        await store.refreshAgents();
+        assert.equal((await store.getUser('u_new')).remote.readiness,readiness,'another client receives recovered as well as failed availability');
+        assert.ok(events.includes('contacts'),'remote status change notifies the contact list');
+      }
+    } finally {unsubscribe();}
     passed++;
   } finally {await store.close();}
 }
@@ -597,7 +608,7 @@ for (const enabled of [true,false]) {
     await writeFile(document, documentBytes);
     cloud.state.failUploads = true;
     const scheduler = new LocalScheduler({ idleRetryLimit: 0, teamMonitorIntervalMs: 0, store,
-      registry: { runTurn: async () => ({ ok: true, message: `这是截图：![预览](<${source}>)\n[报告](<${document}>)`, steps: [], metrics: { iterations: 1, sideEffects: false } }) },
+      registry: { runTurn: async () => ({ ok: true, message: `这是截图：![预览](<${source}>)\n[下载报告](<${document}>)`, steps: [], metrics: { iterations: 1, sideEffects: false } }) },
       syncer: { ensureSynced: async () => [] }, resolveWorkspace: async () => ({ workspacePath: dir, sharesKnowledge: false }),
       resolveDiscovered: () => codex, isAgentReady: () => true, broadcast: () => {}, log: async () => {} });
     await scheduler.runAgentTurn(conversation, agent);
@@ -607,7 +618,7 @@ for (const enabled of [true,false]) {
     await store.sync();
     const sent = cloud.state.messages.get(conversation.conversationId).at(-1);
     assert.equal(sent.senderId, agent.userId);
-    assert.equal(sent.content, '这是截图：预览\n报告');
+    assert.equal(sent.content, '这是截图：预览\n下载报告');
     assert.equal(sent.attachments.length, 2);
     const uploaded = cloud.state.attachments.get(sent.attachments[0].attachmentId);
     assert.equal(uploaded.uploader, agent.userId, 'upload ticket and message use the same Agent sender');
@@ -1037,12 +1048,13 @@ for (const enabled of [true,false]) {
     assert.equal(cloud.state.conversations.get(id).extra.charter.goal, "本机新目标");
     assert.equal(cloud.state.conversations.get(id).name, "别处改名", "Only charter is uploaded; the old name is not sent back");
 
-    // Collaboration strategy belongs only to the leading computer: A's mode is not dropped when B changes the goal, and does not follow to B
-    await a.updateConversation(id, { charter: { goal: "本机新目标", mode: "execution" } });
+    // Legacy clients may leave an opaque mode field. Current clients preserve it
+    // in cloud updates but use planning/assignment state for scheduling.
+    cloud.state.conversations.get(id).extra.charter = { goal: "本机新目标", mode: "execution" };
     await a.sync();
     await b.refreshConversation(id);
     assert.equal((await b.getConversation(id)).charter.goal, "本机新目标");
-    assert.equal((await b.getConversation(id)).charter.mode, undefined);
+    assert.equal((await b.getConversation(id)).charter.mode, "execution", "Legacy metadata survives reads without changing current scheduling");
     await b.updateConversation(id, { charter: { goal: "B 的目标" } });
     await b.sync();
     assert.deepEqual(cloud.state.conversations.get(id).extra.charter, { goal: "B 的目标", mode: "execution" });

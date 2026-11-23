@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import os from 'node:os';import path from 'node:path';
@@ -10,13 +11,13 @@ const store=new LocalStore(dir);await store.init();
 const discovered=['codex','claude-code'].map(kind=>({kind,localUuid:kind,executablePath:'/mock',version:'test'}));
 const users=await store.syncDiscoveredAgents(discovered),[leader,worker]=discovered.map(d=>users.find(u=>u.kind===d.kind));
 const me=await store.currentUser();
-const base={store,connectionRetryDelayMs:1,syncer:{ensureSynced:async()=>[]},resolveWorkspace:async()=>({workspacePath:dir,sharesKnowledge:false}),resolveDiscovered:id=>discovered.find(d=>users.find(u=>u.kind===d.kind)?.userId===id),isAgentReady:()=>true,broadcast:()=>{},log:async()=>{}};
+const base={store,connectionRetryDelayMs:1,syncer:{ensureSynced:async()=>[]},resolveWorkspace:async()=>({workspacePath:dir,sharesKnowledge:false}),resolveDiscovered:id=>discovered.find(d=>users.find(u=>u.kind===d.kind)?.userId===id),isAgentReady:u=>u.userId===leader.userId,broadcast:()=>{},log:async()=>{}};
 const metrics={iterations:1,sideEffects:true};
 const broken=()=>({ok:false,threadId:'broken-thread',error:'stream disconnected before completion: websocket closed by server before response.completed',steps:['已有文件写入'],cancelled:false,metrics});
 const ok=message=>({ok:true,threadId:'healthy-thread',message,steps:[],metrics});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function settle(s){for(let i=0;i<800;i++){if(!s.runtimeSnapshot().agents.length&&!s.idleChecks.size){await sleep(5);if(!s.runtimeSnapshot().agents.length&&!s.idleChecks.size)return;}await sleep(5);}throw Error('not settled');}
-async function conversation(name){const t=await store.createConversation({name,memberIds:users.map(u=>u.userId),leaderId:leader.userId,charter:{mode:'execution'}});await store.appendMessage({conversationId:t.conversationId,clientMessageId:name,senderId:me.userId,content:'保留源图，只修复副本'});return t;}
+async function conversation(name){const t=await readyGroup(store,{name,memberIds:users.map(u=>u.userId),leaderId:leader.userId});await store.appendMessage({conversationId:t.conversationId,clientMessageId:name,senderId:me.userId,content:'保留源图，只修复副本'});return t;}
 try {
  assert.ok(isConnectionFailure(broken().error));
  for(const error of ['permission denied','quota exceeded','rate limit','审批拒绝'])assert.equal(isConnectionFailure(error),false);
@@ -117,7 +118,7 @@ try {
   await store.appendMessage({conversationId:b.conversationId,clientMessageId:id,senderId:leader.userId,type:'TASK',content:'按方案执行',coordination});
   const body='已尝试修复。草稿 drafts/q09.png，公式有损伤，不能验收。';
   const raw=body+'\n'+JSON.stringify({control:{action:'blocked',assignmentId:id,reason:'公式有损伤'}}).slice(0,malformed?-1:undefined);
-  const bsch=new LocalScheduler({...base,idleRetryLimit:0,registry:{runTurn:async d=>d.kind===worker.kind?ok(raw):ok('SKIP')}});
+  const bsch=new LocalScheduler({...base,isAgentReady:()=>true,idleRetryLimit:0,registry:{runTurn:async d=>d.kind===worker.kind?ok(raw):ok('SKIP')}});
   await bsch.runAgentTurn(b,worker);await settle(bsch);
   const reply=(await store.listMessages(b.conversationId)).find(m=>m.agentReply?.raw===raw);
   assert.equal(reply.content,body);assert.equal(reply.coordination.phase,'rejected');assert.equal((await store.getConversation(b.conversationId)).workPlan[0].status,'blocked');
@@ -125,6 +126,7 @@ try {
  for(const raw of ['{"control":{"action":"stop"}', '{"control":{"action":"blocked","assignmentId":"x","reason":"未写完', '{"control":{"action":"blocked","assignmentId":"x"}'])assert.equal(parseLeaderControl(raw).control,undefined);
  // Idle instruction was previously omitted because it had the leader's own sender id.
  const idle=await conversation('内部跟进必须送达');let idleCalls=0;
+ await store.updateConversation(idle.conversationId,{workPlan:[{id:'unfinished',assignment:'Inspect the draft',candidates:[leader.userId],dependsOn:[],outputs:[],acceptance:'Checked evidence',status:'blocked'}]});
  const i=new LocalScheduler({...base,idleRetryLimit:3,registry:{runTurn:async(_,input)=>{idleCalls++;if(idleCalls>1)assert.match(input.prompt,/自动跟进/);return ok('SKIP');}}});
  await i.runAgentTurn(idle,leader);await settle(i);assert.equal(idleCalls,4);
  assert.ok((await store.listMessages(idle.conversationId)).filter(m=>m.type==='SYSTEM').every(m=>m.internal));

@@ -13,12 +13,13 @@ import fs from "node:fs";
 import { mainMessages } from "./locales/main.js";
 import { servicesMessages } from "./locales/services.js";
 import { orchestrationMessages } from "./locales/orchestration.js";
+import { cloudErrorMessages } from "./locales/cloud-errors.js";
 import { writePreference } from "./platform/preferences.js";
 
 export type Language = "zh-CN" | "en";
 export type Entry = { readonly zh: string; readonly en: string };
 export type Catalog = Readonly<Record<string, Entry>>;
-const catalog = { ...mainMessages, ...servicesMessages, ...orchestrationMessages };
+const catalog = { ...mainMessages, ...servicesMessages, ...orchestrationMessages, ...cloudErrorMessages };
 export type MainMessageKey = keyof typeof catalog;
 
 let language: Language = "zh-CN";
@@ -59,4 +60,11 @@ export function tm(key: MainMessageKey, params?: Record<string, string | number>
   return text.replace(/\{(\w+)\}/g, (whole, name: string) =>
     Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : whole
   );
+}
+
+/** UI text for a conductor error code, or undefined for codes this build doesn't know. */
+export function cloudErrorText(code: unknown): string | undefined {
+  if (typeof code !== "string" || !/^[A-Z]+_\d{3}$/.test(code)) return undefined;
+  const key = `cloud.error.${code}`;
+  return Object.prototype.hasOwnProperty.call(catalog, key) ? tm(key as MainMessageKey) : undefined;
 }

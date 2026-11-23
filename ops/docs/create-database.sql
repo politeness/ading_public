@@ -3,7 +3,7 @@
 --
 -- Back up before going live:
 --   MYSQL_PWD=… mysqldump --single-transaction ading > backup/ading-db.bak-<time>.sql
--- These are new tables only and don't affect conductor — older conductor versions won't error on them.
+-- These are new tables only and do not affect conductor — older conductor versions will not error on them.
 
 CREATE TABLE `ops_feedback` (
   `id`                BIGINT(20)   NOT NULL AUTO_INCREMENT COMMENT 'ID, auto-increment',

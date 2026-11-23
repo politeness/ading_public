@@ -12,7 +12,7 @@
 -- Fields fall into two kinds (connected mode phase 1, design in section 6 of docs/cloud-data-design.md):
 --   those the backend queries or filters on become separate columns,
 --   runtime state only the desktop scheduler understands (charter, workPlan, brainstorm, steps, agentReply, etc.)
---   goes into the JSON column extra, which the backend only stores and never parses. These structures still evolve with the scheduler and aren't worth a schema change and release each time.
+--   goes into the JSON column extra, which the backend only stores and never parses. These structures still evolve with the scheduler and are not worth a schema change and release each time.
 
 CREATE DATABASE IF NOT EXISTS `ading`
   DEFAULT CHARACTER SET utf8mb4
@@ -220,7 +220,7 @@ CREATE TABLE `attachments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Message attachments';
 
 -- ---------------------------------------------------------------------------
--- agent_sessions: an agent's CLI session resume token within a conversation
+-- agent_sessions: the CLI session resume token of an agent within a conversation
 -- Each conversation has its own thread — never shared between conversations
 -- Read positions are not here — they all live in conversation_user_rel.last_read_seq
 -- ---------------------------------------------------------------------------
@@ -282,7 +282,7 @@ CREATE TABLE `workspaces` (
 -- app_releases: upgradable desktop client versions
 -- The release pipeline (desktop_mac/scripts/release.mjs) generates the matching INSERT, with rollout = GRAY by default.
 -- Versions are identified externally by (channel, version, arch) — there is no separate business ID.
--- For gray release and rollout operations, see the "Gray release" section of desktop_mac's docs/ota-design.md.
+-- For gray release and rollout operations, see the "Gray release" section of docs/ota-design.md in desktop_mac.
 -- ---------------------------------------------------------------------------
 CREATE TABLE `app_releases` (
   `id`                    BIGINT(20)    NOT NULL AUTO_INCREMENT COMMENT 'ID, auto-increment',
@@ -369,7 +369,7 @@ CREATE TABLE `device_telemetry` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Device telemetry';
 
 -- ---------------------------------------------------------------------------
--- device_telemetry_hour: device foreground-active hourly buckets: one row means "this computer's window was in the foreground during this hour".
+-- device_telemetry_hour: device foreground-active hourly buckets: one row means "the window of this computer was in the foreground during this hour".
 -- conductor writes idempotently by (stat_hour, device_uuid) on receiving telemetry — the ops console computes computer DAU and MAU from it.
 -- Rows from 2026-11-09 and earlier come from old background reports (launch, day rollover, wake), which were recorded even without the UI open.
 -- ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ CREATE TABLE `device_telemetry_hour` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Device foreground-active hourly buckets';
 
 -- ---------------------------------------------------------------------------
--- devices: devices: one copy of a device's parameters, keyed by device_uuid, not by account.
+-- devices: devices: one copy of the parameters of a device, keyed by device_uuid, not by account.
 -- device_uuid is the same as terminals.fingerprint and device_telemetry.device_uuid.
 -- Accounts and devices are many-to-many, linked through terminals (owner + fingerprint). Standalone mode has no account, only one row in this table.
 -- ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ const ok=message=>({ok:true,message,steps:[],metrics:{iterations:1,sideEffects:f
 const encoded=control=>JSON.stringify({control});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const until=async(fn)=>{for(let i=0;i<600;i++){if(await fn())return;await sleep(5);}throw Error('timeout');};
-const conversation=async name=>store.createConversation({name,memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution'}});
+const conversation=async name=>store.createConversation({name,memberIds:agents.map(a=>a.userId),leaderId:leader.userId});
 const item=(id,candidates=[worker.userId],extra={})=>({id,assignment:`独立工作 ${id}`,candidates,dependsOn:[],outputs:[`draft/${id}.txt`],acceptance:'实际文件内容通过检查',readOnly:false,...extra});
 try {
  const t=await conversation('self-assignment');let rounds=0;
@@ -155,7 +155,8 @@ try {
  assert.equal(tenPeak,10);await sleep(20);assert.equal(tenStarted,10);tenReleases[0]();await until(()=>tenStarted===11);assert.equal(tenPeak,10);
  for(const release of tenReleases)release();await until(()=>!wide.workLanes.size&&!wide.runtimeSnapshot().agents.length);await wide.stopConversation(ten.conversationId);
  // A message sent during readiness detection resumes once the leader becomes ready.
- const boot=await conversation('readiness-restored');let ready=false,bootCalls=0;
+ // Monitoring is gated on open work now (no execution mode), so the group carries a blocked item.
+ const boot=await conversation('readiness-restored');let ready=false,bootCalls=0;await store.updateConversation(boot.conversationId,{workPlan:[{...item('boot-blocked'),status:'blocked',evidence:'等待 Leader 就绪后重新安排'}]});
  const bootScheduler=new LocalScheduler({...base,idleRetryLimit:1,teamMonitorIntervalMs:15_000,isAgentReady:()=>ready,registry:{runTurn:async()=>{bootCalls++;return ok('SKIP');}}});
  bootScheduler.engagedConversations.add(boot.conversationId);await bootScheduler.monitorTeams();assert.equal(bootCalls,0);ready=true;await bootScheduler.monitorTeams();await until(()=>bootCalls===1&&!bootScheduler.runtimeSnapshot().agents.length);await bootScheduler.stopConversation(boot.conversationId);
 

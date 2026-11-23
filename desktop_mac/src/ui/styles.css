@@ -2444,7 +2444,9 @@
 
       .message-line { display: flex; max-width: 100%; align-items: flex-end; gap: 6px; }
       .message-content { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
-      .message-reply {
+      .message.user .message-content { align-items: flex-end; }
+      .message-actions { display: flex; flex: none; gap: 4px; }
+      .message-action {
         display: grid;
         flex: none;
         width: 24px;
@@ -2458,9 +2460,9 @@
         opacity: 0;
         place-items: center;
       }
-      .message:hover .message-reply, .message-reply:focus-visible { opacity: 1; }
-      .message-reply:hover { color: var(--blue); }
-      .message-reply svg { width: 16px; height: 16px; }
+      .message:hover .message-action, .message-action:focus-visible, .message-action.copied { opacity: 1; }
+      .message-action:hover, .message-action.copied { color: var(--blue); }
+      .message-action svg { width: 16px; height: 16px; }
       .message-quote {
         display: block;
         width: 100%;
@@ -4311,6 +4313,8 @@
 .mention-me { padding: 0 3px; color: #b42318; font-weight: 600; border-radius: 4px; background: #fee4e2; }
 .mention-jump { position: absolute; top: 12px; right: 16px; z-index: 5; padding: 6px 12px; color: #d92d20; font-size: 13px; font-weight: 600; border: 1px solid #fecdca; border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgb(31 35 41 / 14%); cursor: pointer; }
 .mention-jump[hidden] { display: none; }
+.message-filter-button.latest-jump { position: absolute; right: 16px; bottom: 12px; z-index: 5; width: 36px; height: 36px; border-radius: 10px; }
+.latest-jump[hidden] { display: none; }
 .message.mention-target .bubble { animation: mention-target 1.6s ease-out; }
 @keyframes mention-target { 0%, 45% { box-shadow: 0 0 0 3px #fda29b; } 100% { box-shadow: 0 0 0 3px transparent; } }
 

@@ -17,7 +17,7 @@ const item=(id,extra={})=>({id,assignment:'处理独立输入',candidates:[worke
 const review=id=>({action:'review',workId:id,verdict:'pass',evidence:`实际检查 ${id} 文件`});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function settle(s){for(let i=0;i<400;i++){if(!s.runtimeSnapshot().agents.length&&!s.idleChecks.size){await sleep(5);if(!s.runtimeSnapshot().agents.length&&!s.idleChecks.size)return;}await sleep(5);}throw Error('did not settle');}
-async function conversation(name,workPlan=[]){let t=await store.createConversation({name,memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{mode:'execution',instructions:'保留原件，允许独立报告'}});return store.updateConversation(t.conversationId,{workPlan});}
+async function conversation(name,workPlan=[]){let t=await store.createConversation({name,memberIds:agents.map(a=>a.userId),leaderId:leader.userId,charter:{instructions:'保留原件，允许独立报告'}});return store.updateConversation(t.conversationId,{workPlan});}
 try {
  const batch={action:'batch',actions:[review('a'),review('b'),{action:'plan',work:[item('next',{dependsOn:['a','b']})]}]};
  assert.equal(parseLeaderControl(encoded(batch)).control.actions.length,3);

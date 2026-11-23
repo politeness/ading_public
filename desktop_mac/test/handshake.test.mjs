@@ -1,3 +1,4 @@
+import {configureCodexSessionRoot} from '../dist/agents/codex-session-home.js';
 import assert from 'node:assert/strict';
 import { access, mkdtemp, readdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -53,6 +54,7 @@ await assert.rejects(withHandshakeDirectory('codex', async cwd => {
 }), /probe failed/);
 await assert.rejects(access(failedDirectory));
 const root = await mkdtemp(path.join(os.tmpdir(), 'ading-handshake-test-'));
+configureCodexSessionRoot(path.join(root,'codex-sessions'));
 assert.deepEqual(handshakeCommand('/cli', ['--help'], 'linux'), {executablePath:'/cli',args:['--help']});
 if (process.platform === 'darwin') {
   const { mkdir } = await import('node:fs/promises');

@@ -15,7 +15,7 @@ import re
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = "ADing"
 SRC = os.path.join(ROOT, APP)
-VERSION = "0.11.3"  # all platforms share one version: same three-part number as desktop and backend
+VERSION = "1.0.1"  # all platforms share one version: same three-part number as desktop and backend
 BUNDLE_ID = "com.politeness.ading"
 # "Share to ADing" extension: embedded in the App, sharing the Networking code and Chinese/English strings with the App
 SHARE = "ADingShare"

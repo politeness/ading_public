@@ -8,14 +8,24 @@ enum APIError: LocalizedError {
     /// Can't reach the server
     case network(String)
 
+    /// Codes thrown by APIClient itself (HTTP status, upload and download failures), never sent by the server
+    static let clientCodePrefixes = ["HTTP_", "UPLOAD_", "DOWNLOAD_", "BAD_", "EMPTY"]
+
     var errorDescription: String? {
         switch self {
-        // The blocked-term message is shown in the UI language (the server returns the original Chinese text)
+        // Codes with app-specific wording
         case .rejected("MSG_009", _): L10n.string("error.contentBlocked")
         case .rejected("REGION_001", _): L10n.string("error.regionUnavailable")
         case .rejected("AGENT_009", _): L10n.string("agent.computerOffline")
         case .rejected("NODE_006", _): L10n.string("error.presenceUnknown")
-        case .rejected(_, let message): message
+        // Codes made by this client carry already localized text. Server codes: the server message is
+        // English only, so show the localized text for the code
+        case .rejected(let code, let message):
+            if APIError.clientCodePrefixes.contains(where: code.hasPrefix) {
+                message
+            } else {
+                L10n.optional("server.error.\(code)") ?? L10n.string("error.requestFailed")
+            }
         case .unauthorized: L10n.string("error.unauthorized")
         case .network(let detail): L10n.format("error.network %@", detail)
         }
@@ -29,14 +39,14 @@ actor APIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder = JSONEncoder()
-    private var refreshing: Task<Bool, Never>?
+    private var refreshing: Task<Bool, Error>?
     /// Notify the UI to return to the login page when login expires
     nonisolated(unsafe) var onUnauthorized: (@Sendable () -> Void)?
 
-    init() {
+    init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
-        session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let text = try decoder.singleValueContainer().decode(String.self)
@@ -231,11 +241,15 @@ actor APIClient {
     }
 
     func messages(in conversationId: String, afterSeq: Int) async throws -> [RemoteMessage] {
-        try await send("GET", "/api/v1/conversations/\(escape(conversationId))/messages?afterSeq=\(afterSeq)&limit=200")
+        try await send("GET", "/api/v1/conversations/\(escape(conversationId))/messages?afterSeq=\(afterSeq)&limit=100")
     }
 
     func latestMessages(in conversationId: String) async throws -> [RemoteMessage] {
         try await send("GET", "/api/v1/conversations/\(escape(conversationId))/messages?limit=100")
+    }
+
+    func messages(in conversationId: String, beforeSeq: Int) async throws -> [RemoteMessage] {
+        try await send("GET", "/api/v1/conversations/\(escape(conversationId))/messages?beforeSeq=\(beforeSeq)&limit=100")
     }
 
     /// With attachments, register and upload each to OSS first, then send the message once all are uploaded; on mid-way failure the whole message is resent, registration and upload are idempotent by attachment ID
@@ -276,6 +290,7 @@ actor APIClient {
         do {
             (_, response) = try await uploadSession.upload(for: put, fromFile: attachment.fileURL)
         } catch {
+            try RequestCancellation.check(error)
             throw APIError.network(error.localizedDescription)
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -309,6 +324,7 @@ actor APIClient {
         do {
             (temporary, response) = try await uploadSession.download(from: url)
         } catch {
+            try RequestCancellation.check(error)
             throw APIError.network(error.localizedDescription)
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -357,6 +373,7 @@ actor APIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            try RequestCancellation.check(error)
             let failure = error as NSError
             Task { await FeedbackDiagnostics.shared.record("http-network-error", fields: ["method": method, "route": diagnosticRoute, "domain": failure.domain, "code": String(failure.code)], scope: diagnosticScope) }
             throw APIError.network(error.localizedDescription)
@@ -366,9 +383,12 @@ actor APIClient {
             Task { await FeedbackDiagnostics.shared.record("http-error", fields: ["method": method, "route": diagnosticRoute, "status": String(status)], scope: diagnosticScope) }
         }
         if status == 401 && authorized {
-            if !retried, await refreshTokens() {
+            try Task.checkCancellation()
+            if !retried, try await refreshTokens() {
+                try Task.checkCancellation()
                 return try await sendOptional(method, path, body: body, authorized: authorized, retried: true)
             }
+            try Task.checkCancellation()
             Credentials.clear()
             onUnauthorized?()
             throw APIError.unauthorized
@@ -392,9 +412,9 @@ actor APIClient {
     }
 
     /// Only one refresh at a time; concurrent requests all wait for that result
-    private func refreshTokens() async -> Bool {
-        if let refreshing { return await refreshing.value }
-        let conversation = Task<Bool, Never> {
+    private func refreshTokens() async throws -> Bool {
+        if let refreshing { return try await refreshing.value }
+        let conversation = Task<Bool, Error> {
             guard let refreshToken = Credentials.refreshToken else { return false }
             struct Body: Encodable { let refreshToken: String }
             do {
@@ -402,13 +422,13 @@ actor APIClient {
                 Credentials.save(tokens)
                 return true
             } catch {
+                try RequestCancellation.check(error)
                 return false
             }
         }
         refreshing = conversation
-        let ok = await conversation.value
-        refreshing = nil
-        return ok
+        defer { refreshing = nil }
+        return try await conversation.value
     }
 
     private func escape(_ value: String) -> String {

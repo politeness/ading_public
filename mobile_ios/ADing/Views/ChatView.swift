@@ -15,6 +15,9 @@ struct ChatView: View {
     /// @-mentions read on open: once marked read they can't be queried, so record them for the floating button and drop them once tapped
     @State private var mentionJumpSeq: Int?
     @State private var flashedMessageId: String?
+    @State private var scrollAnchor: String?
+    @State private var followsLatest = true
+    @State private var chatViewportHeight: CGFloat = 0
     @State private var showingActivity = false
     @State private var blockedContact = false
     @State private var addingMembers = false
@@ -150,19 +153,48 @@ struct ChatView: View {
                                             in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
+                    .scrollTargetLayout()
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: ChatHistoryBounds.self,
+                                               value: geometry.frame(in: .named("chat-history")))
+                    })
+                }
+                .coordinateSpace(name: "chat-history")
+                .defaultScrollAnchor(.bottom)
+                .scrollPosition(id: $scrollAnchor, anchor: .top)
+                .background(GeometryReader { geometry in
+                    Color.clear
+                        .onAppear { chatViewportHeight = geometry.size.height }
+                        .onChange(of: geometry.size.height) { _, height in chatViewportHeight = height }
+                })
+                .onPreferenceChange(ChatHistoryBounds.self) { bounds in
+                    guard chatViewportHeight > 0 else { return }
+                    followsLatest = bounds.maxY <= chatViewportHeight + 8
+                    if bounds.minY >= -120 { Task { await chat.loadOlder() } }
+                }
+                .onChange(of: chat.messages.first?.messageId) { _, _ in
+                    // A page containing only internal events may not change layout.
+                    if chat.visibleMessages.isEmpty { Task { await chat.loadOlder() } }
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // Activity: floats at the bottom right of the message area like desktop (a draft has no task yet, so nothing to view)
                 .overlay(alignment: .bottomTrailing) {
                     if chat.conversationId != nil {
-                        // Chats with real people have no Agent working, so Activity is empty: keep the button but greyed out and disabled
-                        FloatingButton(label: "process.title") { showingActivity = true } icon: {
-                            ActivityIcon()
+                        VStack(spacing: 8) {
+                            if !followsLatest && !chat.visibleMessages.isEmpty {
+                                FloatingButton(label: "chat.latest") { scrollToBottom(proxy) } icon: {
+                                    Image(systemName: "arrow.down.to.line")
+                                }
+                            }
+                            // Chats with real people have no Agent working: keep the Activity button but greyed out.
+                            FloatingButton(label: "process.title") { showingActivity = true } icon: {
+                                ActivityIcon()
+                            }
+                            .disabled(!hasAgent)
+                            .opacity(hasAgent ? 1 : 0.4)
                         }
-                        .disabled(!hasAgent)
-                        .opacity(hasAgent ? 1 : 0.4)
                         .padding(.trailing, 16)
                         .padding(.bottom, 12)
                     }
@@ -190,7 +222,10 @@ struct ChatView: View {
                           mine.hasUnreadMention else { return }
                     mentionJumpSeq = mine.firstUnreadMentionSeq
                 }
-                .onChange(of: chat.visibleMessages.last?.messageId) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: chat.visibleMessages.last?.messageId) { old, _ in
+                    // Always reveal the user's own new message, even while reading older history.
+                    if old == nil || followsLatest || chat.visibleMessages.last?.senderId == me { scrollToBottom(proxy) }
+                }
                 .onChange(of: composing) { _, focused in if focused { scrollToBottom(proxy) } }
             }
             if let error = chat.error {
@@ -738,6 +773,11 @@ struct ChatView: View {
         guard let target = chat.visibleMessages.last?.messageId else { return }
         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .bottom) }
     }
+}
+
+private struct ChatHistoryBounds: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 private struct ReplyTarget {

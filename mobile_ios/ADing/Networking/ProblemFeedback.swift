@@ -108,7 +108,8 @@ actor ProblemFeedbackQueue {
                 let failed = directory.appendingPathComponent("failed")
                 try FileManager.default.createDirectory(at: failed, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: file, to: failed.appendingPathComponent(file.lastPathComponent))
-                return .rejected(envelope?.message ?? L10n.string("feedback.invalidResponse"))
+                // The server message is English only; show the localized text for the code
+                return .rejected(envelope.map { L10n.optional("server.error.\($0.code)") ?? L10n.string("error.requestFailed") } ?? L10n.string("feedback.invalidResponse"))
             }
             return .queued
         } catch { return .queued }

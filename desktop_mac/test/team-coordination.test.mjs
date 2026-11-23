@@ -128,7 +128,7 @@ const latestFor=async(node,conversationId,agentId)=>(await node.store.listMessag
   await link(A,B);
   const worker=B.agents[0].userId,leader=A.agents[0].userId;
   const t=await A.store.createConversation({name:'收回',memberIds:[leader,worker],leaderId:leader});
-  await A.store.updateConversation(t.conversationId,{charter:{mode:'execution'},brainstorm:{phase:'ready',round:1,revision:1,probes:0,attempts:0,leaderId:leader,inputSeq:0,participants:[],responses:{},turnDurationsMs:{},evidenceReady:true},
+  await A.store.updateConversation(t.conversationId,{brainstorm:{phase:'ready',round:1,revision:1,probes:0,attempts:0,leaderId:leader,inputSeq:0,participants:[],responses:{},turnDurationsMs:{},evidenceReady:true},
    workPlan:[{id:'W1',assignment:'做',candidates:[worker],dependsOn:[],outputs:[],acceptance:'回复',readOnly:true,status:'active',assigneeId:worker,assignmentId:'as1',startedAt:new Date().toISOString()}]});
   await A.store.appendMessage({conversationId:t.conversationId,clientMessageId:'as1-msg',senderId:leader,type:'TASK',mentions:[worker],content:'开始 W1',coordination:{id:'as1',workId:'W1',assigneeId:worker,phase:'accepted',brief:'做'}});
   await A.scheduler.teamAvailabilityChanged();

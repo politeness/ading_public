@@ -1,3 +1,4 @@
+import {readyGroup} from './ready-group.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -95,8 +96,7 @@ try {
   let groupStore=await opened(new LocalStore(groupDir));
   const [alpha,beta]=await groupStore.syncDiscoveredAgents([{kind:'codex',localUuid:'a',executablePath:'/mock'},{kind:'claude',localUuid:'b',executablePath:'/mock'}]);
   const byAgent=userId=>({kind:userId===alpha.userId?'codex':'claude',localUuid:userId===alpha.userId?'a':'b'});
-  const group=await groupStore.createConversation({name:'群组崩溃',memberIds:[alpha.userId,beta.userId],leaderId:alpha.userId});
-  await groupStore.updateConversation(group.conversationId,{charter:{mode:'discussion'}});
+  const group=await readyGroup(groupStore,{name:'群组崩溃',memberIds:[alpha.userId,beta.userId],leaderId:alpha.userId});
   const groupRuns=[];
   // The scheduler adds a task suffix to localUuid, so identify the Agent by prefix
   const who=d=>d.localUuid.split('::')[0];
